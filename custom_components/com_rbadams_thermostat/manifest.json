@@ -1,6 +1,7 @@
 {
   "domain": "com_rbadams_thermostat",
   "name": "HTTP Thermostat",
+  "version": "0.0.2",
   "config_flow": true,
   "documentation": "https://www.home-assistant.io/integrations/com_rbadams_thermostat",
   "requirements": [],
