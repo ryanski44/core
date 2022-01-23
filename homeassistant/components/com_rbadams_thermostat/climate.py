@@ -17,6 +17,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PRECISION_WHOLE, TEMP_FAHRENHEIT
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import ThermostatUpdateCoordinator
 from .const import CLIMATE, DEFAULT_NAME, DOMAIN
@@ -51,13 +52,13 @@ async def async_setup_entry(
 # }
 
 
-class HTTPThermostat(ClimateEntity):
+class HTTPThermostat(CoordinatorEntity, ClimateEntity):
     """Representation of a Thermostat."""
 
     def __init__(self, coordinator: ThermostatUpdateCoordinator):
         """Init."""
-        super().__init__()
-        self.coordinator = coordinator
+        super().__init__(coordinator)
+        self.api = coordinator.api
 
     @property
     def current_humidity(self) -> int:
@@ -146,5 +147,5 @@ class HTTPThermostat(ClimateEntity):
         data = self.coordinator.data
         data["minTemp"] = min
         data["maxTemp"] = max
-        await self.coordinator.api.async_set_parameter(data)
+        await self.api.async_set_parameter(data)
         await self.coordinator.async_request_refresh()
