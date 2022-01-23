@@ -98,11 +98,11 @@ class HTTPThermostat(ClimateEntity):
     def hvac_action(self) -> str:
         """Return hvac action."""
         data = self.coordinator.data
-        if data["heat"] == "true":
+        if str(data["heat"]).lower() == "true":
             return CURRENT_HVAC_HEAT
-        if data["cool"] == "true":
+        if str(data["cool"]).lower() == "true":
             return CURRENT_HVAC_COOL
-        if data["fan"] == "true":
+        if str(data["fan"]).lower() == "true":
             return CURRENT_HVAC_IDLE
         return CURRENT_HVAC_OFF
 
