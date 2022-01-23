@@ -1,0 +1,15 @@
+{
+  "domain": "com_rbadams_thermostat",
+  "name": "HTTP Thermostat",
+  "config_flow": true,
+  "documentation": "https://www.home-assistant.io/integrations/com_rbadams_thermostat",
+  "requirements": [],
+  "ssdp": [],
+  "zeroconf": [],
+  "homekit": {},
+  "dependencies": [],
+  "codeowners": [
+    "@ryanski44"
+  ],
+  "iot_class": "local_polling"
+}

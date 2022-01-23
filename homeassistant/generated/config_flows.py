@@ -58,6 +58,7 @@ FLOWS = [
     "cloudflare",
     "co2signal",
     "coinbase",
+    "com_rbadams_thermostat",
     "control4",
     "coolmaster",
     "coronavirus",
