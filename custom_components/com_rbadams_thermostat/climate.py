@@ -15,7 +15,7 @@ from homeassistant.components.climate.const import (
     SUPPORT_TARGET_TEMPERATURE_RANGE,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PRECISION_WHOLE, TEMP_FAHRENHEIT
+from homeassistant.const import PRECISION_TENTHS, PRECISION_WHOLE, TEMP_FAHRENHEIT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -123,10 +123,14 @@ class HTTPThermostat(CoordinatorEntity, ClimateEntity):
         return
 
     @property
+    def precision(self) -> float:
+        """Return the precision of the temperature"""
+        return PRECISION_TENTHS
+
+    @property
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
-        temperature = self.coordinator.data["temperatureAverage"]
-        return float(temperature)
+        return float(self.coordinator.data["temperatureAverage"])
 
     @property
     def target_temperature_high(self) -> float | None:
