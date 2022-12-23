@@ -1,7 +1,7 @@
 """Constants for the HTTP Thermostat integration."""
 
 NAME = "HTTP Thermostat (rbadams.com)"
-VERSION = "0.0.1"
+VERSION = "0.0.2"
 
 DOMAIN = "com_rbadams_thermostat"
 DOMAIN_DATA = f"{DOMAIN}_data"

@@ -37,11 +37,9 @@ async def async_setup_entry(
 
 
 # {
-#   "temperatureLocal": 73.75999999999996,
-#   "temperatureRemote": 72.14000000000001,
+#   "sensors":[{"name":"upstairs","temperature":72.49999999999999,"relativeHumidity":0.276}],
 #   "temperatureAverage": 72.94999999999999,
-#   "relativeHumidityLocal": 0.3990000000000001,
-#   "relativeHumidityRemote": 0.408,
+#   "relativeHumidityAverage": 0.3990000000000001,
 #   "heat": false,
 #   "cool": false,
 #   "fan": false,
@@ -63,7 +61,7 @@ class HTTPThermostat(CoordinatorEntity, ClimateEntity):
     @property
     def current_humidity(self) -> int:
         """Return humidity."""
-        return int(self.coordinator.data["relativeHumidityLocal"] * 100)
+        return int(self.coordinator.data["relativeHumidityAverage"] * 100)
 
     @property
     def temperature_unit(self):
