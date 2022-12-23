@@ -10,13 +10,12 @@
         "step": {
             "user": {
                 "data": {
-                    "title": "Configurazione integrazione Syncthing",
+                    "title": "Configura l'integrazione di Syncthing",
                     "token": "Token",
                     "url": "URL",
                     "verify_ssl": "Verifica il certificato SSL"
                 }
             }
         }
-    },
-    "title": "Syncthing"
+    }
 }

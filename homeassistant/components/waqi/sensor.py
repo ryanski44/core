@@ -91,15 +91,11 @@ async def async_setup_platform(
             _LOGGER.debug("The following stations were returned: %s", stations)
             for station in stations:
                 waqi_sensor = WaqiSensor(client, station)
-                if (
-                    not station_filter
-                    or {
-                        waqi_sensor.uid,
-                        waqi_sensor.url,
-                        waqi_sensor.station_name,
-                    }
-                    & set(station_filter)
-                ):
+                if not station_filter or {
+                    waqi_sensor.uid,
+                    waqi_sensor.url,
+                    waqi_sensor.station_name,
+                } & set(station_filter):
                     dev.append(waqi_sensor)
     except (
         aiohttp.client_exceptions.ClientConnectorError,
@@ -187,7 +183,7 @@ class WaqiSensor(SensorEntity):
             except (IndexError, KeyError):
                 return {ATTR_ATTRIBUTION: ATTRIBUTION}
 
-    async def async_update(self):
+    async def async_update(self) -> None:
         """Get the latest data and updates the states."""
         if self.uid:
             result = await self._client.get_station_by_number(self.uid)

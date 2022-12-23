@@ -10,11 +10,9 @@ from homeassistant.components.analytics.const import (
     ANALYTICS_ENDPOINT_URL_DEV,
     ATTR_BASE,
     ATTR_DIAGNOSTICS,
-    ATTR_PREFERENCES,
     ATTR_STATISTICS,
     ATTR_USAGE,
 )
-from homeassistant.components.api import ATTR_UUID
 from homeassistant.const import ATTR_DOMAIN
 from homeassistant.loader import IntegrationNotFound
 from homeassistant.setup import async_setup_component
@@ -58,7 +56,7 @@ async def test_load_with_supervisor_diagnostics(hass):
 async def test_load_with_supervisor_without_diagnostics(hass):
     """Test loading with a supervisor that has not diagnostics enabled."""
     analytics = Analytics(hass)
-    analytics._data[ATTR_PREFERENCES][ATTR_DIAGNOSTICS] = True
+    analytics._data.preferences[ATTR_DIAGNOSTICS] = True
 
     assert analytics.preferences[ATTR_DIAGNOSTICS]
 
@@ -173,6 +171,7 @@ async def test_send_usage(hass, caplog, aioclient_mock):
     """Test send usage preferences are defined."""
     aioclient_mock.post(ANALYTICS_ENDPOINT_URL, status=200)
     analytics = Analytics(hass)
+    hass.http = Mock(ssl_certificate=None)
     await analytics.save_preferences({ATTR_BASE: True, ATTR_USAGE: True})
 
     assert analytics.preferences[ATTR_BASE]
@@ -184,13 +183,14 @@ async def test_send_usage(hass, caplog, aioclient_mock):
 
     assert "'integrations': ['default_config']" in caplog.text
     assert "'integration_count':" not in caplog.text
+    assert "'certificate': False" in caplog.text
 
 
 async def test_send_usage_with_supervisor(hass, caplog, aioclient_mock):
     """Test send usage with supervisor preferences are defined."""
     aioclient_mock.post(ANALYTICS_ENDPOINT_URL, status=200)
-
     analytics = Analytics(hass)
+    hass.http = Mock(ssl_certificate=None)
     await analytics.save_preferences({ATTR_BASE: True, ATTR_USAGE: True})
     assert analytics.preferences[ATTR_BASE]
     assert analytics.preferences[ATTR_USAGE]
@@ -267,8 +267,8 @@ async def test_send_statistics_one_integration_fails(hass, caplog, aioclient_moc
     hass.config.components = ["default_config"]
 
     with patch(
-        "homeassistant.components.analytics.analytics.async_get_integration",
-        side_effect=IntegrationNotFound("any"),
+        "homeassistant.components.analytics.analytics.async_get_integrations",
+        return_value={"any": IntegrationNotFound("any")},
     ), patch("homeassistant.components.analytics.analytics.HA_VERSION", MOCK_VERSION):
         await analytics.send_analytics()
 
@@ -289,8 +289,8 @@ async def test_send_statistics_async_get_integration_unknown_exception(
     hass.config.components = ["default_config"]
 
     with pytest.raises(ValueError), patch(
-        "homeassistant.components.analytics.analytics.async_get_integration",
-        side_effect=ValueError,
+        "homeassistant.components.analytics.analytics.async_get_integrations",
+        return_value={"any": ValueError()},
     ), patch("homeassistant.components.analytics.analytics.HA_VERSION", MOCK_VERSION):
         await analytics.send_analytics()
 
@@ -347,7 +347,7 @@ async def test_reusing_uuid(hass, aioclient_mock):
     """Test reusing the stored UUID."""
     aioclient_mock.post(ANALYTICS_ENDPOINT_URL, status=200)
     analytics = Analytics(hass)
-    analytics._data[ATTR_UUID] = "NOT_MOCK_UUID"
+    analytics._data.uuid = "NOT_MOCK_UUID"
 
     await analytics.save_preferences({ATTR_BASE: True})
 
@@ -365,6 +365,7 @@ async def test_custom_integrations(hass, aioclient_mock, enable_custom_integrati
     """Test sending custom integrations."""
     aioclient_mock.post(ANALYTICS_ENDPOINT_URL, status=200)
     analytics = Analytics(hass)
+    hass.http = Mock(ssl_certificate=None)
     assert await async_setup_component(hass, "test_package", {"test_package": {}})
     await analytics.save_preferences({ATTR_BASE: True, ATTR_USAGE: True})
 
@@ -430,6 +431,7 @@ async def test_send_with_no_energy(hass, aioclient_mock):
     """Test send base preferences are defined."""
     aioclient_mock.post(ANALYTICS_ENDPOINT_URL, status=200)
     analytics = Analytics(hass)
+    hass.http = Mock(ssl_certificate=None)
 
     await analytics.save_preferences({ATTR_BASE: True, ATTR_USAGE: True})
 
@@ -447,15 +449,13 @@ async def test_send_with_no_energy(hass, aioclient_mock):
     assert "energy" not in postdata
 
 
-async def test_send_with_no_energy_config(hass, aioclient_mock):
+async def test_send_with_no_energy_config(recorder_mock, hass, aioclient_mock):
     """Test send base preferences are defined."""
     aioclient_mock.post(ANALYTICS_ENDPOINT_URL, status=200)
     analytics = Analytics(hass)
 
     await analytics.save_preferences({ATTR_BASE: True, ATTR_USAGE: True})
-    assert await async_setup_component(
-        hass, "energy", {"recorder": {"db_url": "sqlite://"}}
-    )
+    assert await async_setup_component(hass, "energy", {})
 
     with patch("uuid.UUID.hex", new_callable=PropertyMock) as hex, patch(
         "homeassistant.components.analytics.analytics.HA_VERSION", MOCK_VERSION
@@ -471,15 +471,13 @@ async def test_send_with_no_energy_config(hass, aioclient_mock):
     assert not postdata["energy"]["configured"]
 
 
-async def test_send_with_energy_config(hass, aioclient_mock):
+async def test_send_with_energy_config(recorder_mock, hass, aioclient_mock):
     """Test send base preferences are defined."""
     aioclient_mock.post(ANALYTICS_ENDPOINT_URL, status=200)
     analytics = Analytics(hass)
 
     await analytics.save_preferences({ATTR_BASE: True, ATTR_USAGE: True})
-    assert await async_setup_component(
-        hass, "energy", {"recorder": {"db_url": "sqlite://"}}
-    )
+    assert await async_setup_component(hass, "energy", {})
 
     with patch("uuid.UUID.hex", new_callable=PropertyMock) as hex, patch(
         "homeassistant.components.analytics.analytics.HA_VERSION", MOCK_VERSION
@@ -493,3 +491,20 @@ async def test_send_with_energy_config(hass, aioclient_mock):
     postdata = aioclient_mock.mock_calls[-1][2]
 
     assert postdata["energy"]["configured"]
+
+
+async def test_send_usage_with_certificate(hass, caplog, aioclient_mock):
+    """Test send usage preferences with certificate."""
+    aioclient_mock.post(ANALYTICS_ENDPOINT_URL, status=200)
+    analytics = Analytics(hass)
+    hass.http = Mock(ssl_certificate="/some/path/to/cert.pem")
+    await analytics.save_preferences({ATTR_BASE: True, ATTR_USAGE: True})
+
+    assert analytics.preferences[ATTR_BASE]
+    assert analytics.preferences[ATTR_USAGE]
+    hass.config.components = ["default_config"]
+
+    with patch("homeassistant.components.analytics.analytics.HA_VERSION", MOCK_VERSION):
+        await analytics.send_analytics()
+
+    assert "'certificate': True" in caplog.text

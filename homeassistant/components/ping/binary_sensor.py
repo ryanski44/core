@@ -131,7 +131,7 @@ class PingBinarySensor(RestoreEntity, BinarySensorEntity):
         await self._ping.async_update()
         self._available = True
 
-    async def async_added_to_hass(self):
+    async def async_added_to_hass(self) -> None:
         """Restore previous state on restart to avoid blocking startup."""
         await super().async_added_to_hass()
 
@@ -140,7 +140,7 @@ class PingBinarySensor(RestoreEntity, BinarySensorEntity):
             self._available = True
 
         if last_state is None or last_state.state != STATE_ON:
-            self._ping.data = False
+            self._ping.data = None
             return
 
         attributes = last_state.attributes

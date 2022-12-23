@@ -1,13 +1,12 @@
 """Helper functions for webOS Smart TV."""
 from __future__ import annotations
 
-from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntry
 
-from . import WebOsClientWrapper
-from .const import DATA_CONFIG_ENTRY, DOMAIN
+from . import WebOsClientWrapper, async_control_connect
+from .const import DATA_CONFIG_ENTRY, DOMAIN, LIVE_TV_APP_ID, WEBOSTV_EXCEPTIONS
 
 
 @callback
@@ -20,25 +19,10 @@ def async_get_device_entry_by_device_id(
     Raises ValueError if device ID is invalid.
     """
     device_reg = dr.async_get(hass)
-    device = device_reg.async_get(device_id)
-
-    if device is None:
+    if (device := device_reg.async_get(device_id)) is None:
         raise ValueError(f"Device {device_id} is not a valid {DOMAIN} device.")
 
     return device
-
-
-@callback
-def async_is_device_config_entry_not_loaded(
-    hass: HomeAssistant, device_id: str
-) -> bool:
-    """Return whether device's config entries are not loaded."""
-    device = async_get_device_entry_by_device_id(hass, device_id)
-    return any(
-        (entry := hass.config_entries.async_get_entry(entry_id))
-        and entry.state != ConfigEntryState.LOADED
-        for entry_id in device.config_entries
-    )
 
 
 @callback
@@ -81,3 +65,29 @@ def async_get_client_wrapper_by_device_entry(
         )
 
     return wrapper
+
+
+async def async_get_sources(host: str, key: str) -> list[str]:
+    """Construct sources list."""
+    try:
+        client = await async_control_connect(host, key)
+    except WEBOSTV_EXCEPTIONS:
+        return []
+
+    sources = []
+    found_live_tv = False
+    for app in client.apps.values():
+        sources.append(app["title"])
+        if app["id"] == LIVE_TV_APP_ID:
+            found_live_tv = True
+
+    for source in client.inputs.values():
+        sources.append(source["label"])
+        if source["appId"] == LIVE_TV_APP_ID:
+            found_live_tv = True
+
+    if not found_live_tv:
+        sources.append("Live TV")
+
+    # Preserve order when filtering duplicates
+    return list(dict.fromkeys(sources))

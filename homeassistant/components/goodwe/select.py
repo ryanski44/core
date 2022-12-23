@@ -5,9 +5,8 @@ from goodwe import Inverter, InverterError
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ENTITY_CATEGORY_CONFIG
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, KEY_DEVICE_INFO, KEY_INVERTER
@@ -15,18 +14,17 @@ from .const import DOMAIN, KEY_DEVICE_INFO, KEY_INVERTER
 _LOGGER = logging.getLogger(__name__)
 
 
-INVERTER_OPERATION_MODES = [
-    "General mode",
-    "Off grid mode",
-    "Backup mode",
-    "Eco mode",
-]
-
 OPERATION_MODE = SelectEntityDescription(
     key="operation_mode",
     name="Inverter operation mode",
     icon="mdi:solar-power",
-    entity_category=ENTITY_CATEGORY_CONFIG,
+    entity_category=EntityCategory.CONFIG,
+    options=[
+        "General mode",
+        "Off grid mode",
+        "Backup mode",
+        "Eco mode",
+    ],
 )
 
 
@@ -42,18 +40,18 @@ async def async_setup_entry(
     # read current operating mode from the inverter
     try:
         active_mode = await inverter.get_operation_mode()
-    except InverterError:
+    except (InverterError, ValueError):
         # Inverter model does not support this setting
         _LOGGER.debug("Could not read inverter operation mode")
     else:
-        if 0 <= active_mode < len(INVERTER_OPERATION_MODES):
+        if (options := OPERATION_MODE.options) and 0 <= active_mode < len(options):
             async_add_entities(
                 [
                     InverterOperationModeEntity(
                         device_info,
                         OPERATION_MODE,
                         inverter,
-                        INVERTER_OPERATION_MODES[active_mode],
+                        options[active_mode],
                     )
                 ]
             )
@@ -75,12 +73,11 @@ class InverterOperationModeEntity(SelectEntity):
         self.entity_description = description
         self._attr_unique_id = f"{DOMAIN}-{description.key}-{inverter.serial_number}"
         self._attr_device_info = device_info
-        self._attr_options = INVERTER_OPERATION_MODES
         self._attr_current_option = current_mode
         self._inverter: Inverter = inverter
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
-        await self._inverter.set_operation_mode(INVERTER_OPERATION_MODES.index(option))
+        await self._inverter.set_operation_mode(self.options.index(option))
         self._attr_current_option = option
         self.async_write_ha_state()

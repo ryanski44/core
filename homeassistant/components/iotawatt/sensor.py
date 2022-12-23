@@ -15,20 +15,21 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
-    ELECTRIC_CURRENT_AMPERE,
-    ELECTRIC_POTENTIAL_VOLT,
-    ENERGY_WATT_HOUR,
-    FREQUENCY_HERTZ,
     PERCENTAGE,
-    POWER_VOLT_AMPERE,
-    POWER_WATT,
+    UnitOfApparentPower,
+    UnitOfElectricCurrent,
+    UnitOfElectricPotential,
+    UnitOfEnergy,
+    UnitOfFrequency,
+    UnitOfPower,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity, entity_registry, update_coordinator
+from homeassistant.helpers import entity, entity_registry
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.typing import StateType
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt
 
 from .const import (
@@ -52,15 +53,16 @@ class IotaWattSensorEntityDescription(SensorEntityDescription):
 ENTITY_DESCRIPTION_KEY_MAP: dict[str, IotaWattSensorEntityDescription] = {
     "Amps": IotaWattSensorEntityDescription(
         "Amps",
-        native_unit_of_measurement=ELECTRIC_CURRENT_AMPERE,
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
         state_class=SensorStateClass.MEASUREMENT,
         device_class=SensorDeviceClass.CURRENT,
         entity_registry_enabled_default=False,
     ),
     "Hz": IotaWattSensorEntityDescription(
         "Hz",
-        native_unit_of_measurement=FREQUENCY_HERTZ,
+        native_unit_of_measurement=UnitOfFrequency.HERTZ,
         state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.FREQUENCY,
         icon="mdi:flash",
         entity_registry_enabled_default=False,
     ),
@@ -74,21 +76,21 @@ ENTITY_DESCRIPTION_KEY_MAP: dict[str, IotaWattSensorEntityDescription] = {
     ),
     "Watts": IotaWattSensorEntityDescription(
         "Watts",
-        native_unit_of_measurement=POWER_WATT,
+        native_unit_of_measurement=UnitOfPower.WATT,
         state_class=SensorStateClass.MEASUREMENT,
         device_class=SensorDeviceClass.POWER,
     ),
     "WattHours": IotaWattSensorEntityDescription(
         "WattHours",
-        native_unit_of_measurement=ENERGY_WATT_HOUR,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
         state_class=SensorStateClass.TOTAL,
         device_class=SensorDeviceClass.ENERGY,
     ),
     "VA": IotaWattSensorEntityDescription(
         "VA",
-        native_unit_of_measurement=POWER_VOLT_AMPERE,
+        native_unit_of_measurement=UnitOfApparentPower.VOLT_AMPERE,
         state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:flash",
+        device_class=SensorDeviceClass.APPARENT_POWER,
         entity_registry_enabled_default=False,
     ),
     "VAR": IotaWattSensorEntityDescription(
@@ -107,7 +109,7 @@ ENTITY_DESCRIPTION_KEY_MAP: dict[str, IotaWattSensorEntityDescription] = {
     ),
     "Volts": IotaWattSensorEntityDescription(
         "Volts",
-        native_unit_of_measurement=ELECTRIC_POTENTIAL_VOLT,
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         state_class=SensorStateClass.MEASUREMENT,
         device_class=SensorDeviceClass.VOLTAGE,
         entity_registry_enabled_default=False,
@@ -153,17 +155,15 @@ async def async_setup_entry(
             for key in coordinator.data["sensors"]
             if key not in created
         ]
-        if entities:
-            async_add_entities(entities)
+        async_add_entities(entities)
 
     coordinator.async_add_listener(new_data_received)
 
 
-class IotaWattSensor(update_coordinator.CoordinatorEntity, SensorEntity):
+class IotaWattSensor(CoordinatorEntity[IotawattUpdater], SensorEntity):
     """Defines a IoTaWatt Energy Sensor."""
 
     entity_description: IotaWattSensorEntityDescription
-    coordinator: IotawattUpdater
 
     def __init__(
         self,
@@ -210,6 +210,12 @@ class IotaWattSensor(update_coordinator.CoordinatorEntity, SensorEntity):
             else:
                 self.hass.async_create_task(self.async_remove())
             return
+
+        if (begin := self._sensor_data.getBegin()) and (
+            last_reset := dt.parse_datetime(begin)
+        ):
+            self._attr_last_reset = last_reset
+
         super()._handle_coordinator_update()
 
     @property
@@ -219,6 +225,7 @@ class IotaWattSensor(update_coordinator.CoordinatorEntity, SensorEntity):
         attrs = {"type": data.getType()}
         if attrs["type"] == "Input":
             attrs["channel"] = data.getChannel()
+
         return attrs
 
     @property

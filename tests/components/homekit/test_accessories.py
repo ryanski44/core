@@ -30,6 +30,7 @@ from homeassistant.components.homekit.const import (
     MANUFACTURER,
     SERV_ACCESSORY_INFO,
 )
+from homeassistant.components.homekit.util import format_version
 from homeassistant.const import (
     ATTR_BATTERY_CHARGING,
     ATTR_BATTERY_LEVEL,
@@ -42,7 +43,6 @@ from homeassistant.const import (
     STATE_OFF,
     STATE_ON,
     STATE_UNAVAILABLE,
-    __version__,
     __version__ as hass_version,
 )
 from homeassistant.helpers.event import TRACK_STATE_CHANGE_CALLBACKS
@@ -107,7 +107,7 @@ async def test_home_accessory(hass, hk_driver):
         hk_driver,
         "Home Accessory that exceeds the maximum maximum maximum maximum maximum maximum length",
         entity_id2,
-        3,
+        4,
         {
             ATTR_MODEL: "Awesome Model that exceeds the maximum maximum maximum maximum maximum maximum length",
             ATTR_MANUFACTURER: "Lux Brands that exceeds the maximum maximum maximum maximum maximum maximum length",
@@ -140,7 +140,7 @@ async def test_home_accessory(hass, hk_driver):
         hk_driver,
         "Home Accessory that exceeds the maximum maximum maximum maximum maximum maximum length",
         entity_id2,
-        3,
+        5,
         {
             ATTR_MODEL: "Awesome Model that exceeds the maximum maximum maximum maximum maximum maximum length",
             ATTR_MANUFACTURER: "Lux Brands that exceeds the maximum maximum maximum maximum maximum maximum length",
@@ -166,7 +166,9 @@ async def test_home_accessory(hass, hk_driver):
         serv.get_characteristic(CHAR_SERIAL_NUMBER).value
         == "light.accessory_that_exceeds_the_maximum_maximum_maximum_maximum"
     )
-    assert serv.get_characteristic(CHAR_FIRMWARE_REVISION).value == hass_version
+    assert format_version(hass_version).startswith(
+        serv.get_characteristic(CHAR_FIRMWARE_REVISION).value
+    )
 
     hass.states.async_set(entity_id, "on")
     await hass.async_block_till_done()
@@ -189,7 +191,7 @@ async def test_home_accessory(hass, hk_driver):
     entity_id = "test_model.demo"
     hass.states.async_set(entity_id, None)
     await hass.async_block_till_done()
-    acc = HomeAccessory(hass, hk_driver, "test_name", entity_id, 2, None)
+    acc = HomeAccessory(hass, hk_driver, "test_name", entity_id, 6, None)
     serv = acc.services[0]  # SERV_ACCESSORY_INFO
     assert serv.get_characteristic(CHAR_MODEL).value == "Test Model"
 
@@ -216,7 +218,9 @@ async def test_accessory_with_missing_basic_service_info(hass, hk_driver):
     assert serv.get_characteristic(CHAR_MANUFACTURER).value == "Home Assistant Sensor"
     assert serv.get_characteristic(CHAR_MODEL).value == "Sensor"
     assert serv.get_characteristic(CHAR_SERIAL_NUMBER).value == entity_id
-    assert serv.get_characteristic(CHAR_FIRMWARE_REVISION).value == hass_version
+    assert format_version(hass_version).startswith(
+        serv.get_characteristic(CHAR_FIRMWARE_REVISION).value
+    )
     assert isinstance(acc.to_HAP(), dict)
 
 
@@ -244,7 +248,9 @@ async def test_accessory_with_hardware_revision(hass, hk_driver):
     assert serv.get_characteristic(CHAR_MANUFACTURER).value == "Home Assistant Sensor"
     assert serv.get_characteristic(CHAR_MODEL).value == "Sensor"
     assert serv.get_characteristic(CHAR_SERIAL_NUMBER).value == entity_id
-    assert serv.get_characteristic(CHAR_FIRMWARE_REVISION).value == hass_version
+    assert format_version(hass_version).startswith(
+        serv.get_characteristic(CHAR_FIRMWARE_REVISION).value
+    )
     assert serv.get_characteristic(CHAR_HARDWARE_REVISION).value == "1.2.3"
     assert isinstance(acc.to_HAP(), dict)
 
@@ -311,7 +317,7 @@ async def test_battery_service(hass, hk_driver, caplog):
     with patch(
         "homeassistant.components.homekit.accessories.HomeAccessory.async_update_state"
     ):
-        acc = HomeAccessory(hass, hk_driver, "Battery Service", entity_id, 2, None)
+        acc = HomeAccessory(hass, hk_driver, "Battery Service", entity_id, 3, None)
         assert acc._char_battery.value == 0
         assert acc._char_low_battery.value == 0
         assert acc._char_charging.value == 2
@@ -399,7 +405,7 @@ async def test_linked_battery_sensor(hass, hk_driver, caplog):
         hk_driver,
         "Battery Service",
         entity_id,
-        2,
+        3,
         {CONF_LINKED_BATTERY_SENSOR: linked_battery, CONF_LOW_BATTERY_THRESHOLD: 50},
     )
     with patch(
@@ -687,21 +693,24 @@ def test_home_bridge(hk_driver):
     serv = bridge.services[0]  # SERV_ACCESSORY_INFO
     assert serv.display_name == SERV_ACCESSORY_INFO
     assert serv.get_characteristic(CHAR_NAME).value == BRIDGE_NAME
-    assert serv.get_characteristic(CHAR_FIRMWARE_REVISION).value == __version__
+    assert format_version(hass_version).startswith(
+        serv.get_characteristic(CHAR_FIRMWARE_REVISION).value
+    )
     assert serv.get_characteristic(CHAR_MANUFACTURER).value == MANUFACTURER
     assert serv.get_characteristic(CHAR_MODEL).value == BRIDGE_MODEL
     assert serv.get_characteristic(CHAR_SERIAL_NUMBER).value == BRIDGE_SERIAL_NUMBER
 
+
+def test_home_bridge_setup_message(hk_driver):
+    """Test HomeBridge setup message."""
     bridge = HomeBridge("hass", hk_driver, "test_name")
     assert bridge.display_name == "test_name"
     assert len(bridge.services) == 2
-    serv = bridge.services[0]  # SERV_ACCESSORY_INFO
-
     # setup_message
     bridge.setup_message()
 
 
-def test_home_driver():
+def test_home_driver(iid_storage):
     """Test HomeDriver class."""
     ip_address = "127.0.0.1"
     port = 51826
@@ -714,6 +723,7 @@ def test_home_driver():
             "entry_id",
             "name",
             "title",
+            iid_storage=iid_storage,
             address=ip_address,
             port=port,
             persist_file=path,

@@ -127,6 +127,7 @@ class HyperionComponentSwitch(SwitchEntity):
     """ComponentBinarySwitch switch class."""
 
     _attr_entity_category = EntityCategory.CONFIG
+    _attr_should_poll = False
 
     def __init__(
         self,
@@ -148,11 +149,6 @@ class HyperionComponentSwitch(SwitchEntity):
         self._client_callbacks = {
             f"{KEY_COMPONENTS}-{KEY_UPDATE}": self._update_components
         }
-
-    @property
-    def should_poll(self) -> bool:
-        """Return whether or not this entity should be polled."""
-        return False
 
     @property
     def entity_registry_enabled_default(self) -> bool:
@@ -191,6 +187,7 @@ class HyperionComponentSwitch(SwitchEntity):
             manufacturer=HYPERION_MANUFACTURER_NAME,
             model=HYPERION_MODEL_NAME,
             name=self._instance_name,
+            configuration_url=self._client.remote_url,
         )
 
     async def _async_send_set_component(self, value: bool) -> None:

@@ -14,8 +14,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 
+from . import UPNP_SERIAL
+
 from tests.common import MockConfigEntry
-from tests.components.roku import UPNP_SERIAL
 
 
 async def test_roku_sensors(
@@ -65,7 +66,7 @@ async def test_roku_sensors(
     assert device_entry.suggested_area is None
 
 
-@pytest.mark.parametrize("mock_roku", ["roku/rokutv-7820x.json"], indirect=True)
+@pytest.mark.parametrize("mock_device", ["roku/rokutv-7820x.json"], indirect=True)
 async def test_rokutv_sensors(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,

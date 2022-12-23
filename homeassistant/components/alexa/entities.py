@@ -11,9 +11,11 @@ from homeassistant.components import (
     binary_sensor,
     button,
     camera,
+    climate,
     cover,
     fan,
     group,
+    humidifier,
     image_processing,
     input_boolean,
     input_button,
@@ -28,7 +30,6 @@ from homeassistant.components import (
     timer,
     vacuum,
 )
-from homeassistant.components.climate import const as climate
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_SUPPORTED_FEATURES,
@@ -36,8 +37,7 @@ from homeassistant.const import (
     CLOUD_NEVER_EXPOSED_ENTITIES,
     CONF_DESCRIPTION,
     CONF_NAME,
-    TEMP_CELSIUS,
-    TEMP_FAHRENHEIT,
+    UnitOfTemperature,
     __version__,
 )
 from homeassistant.core import HomeAssistant, State, callback
@@ -83,7 +83,7 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-ENTITY_ADAPTERS = Registry()
+ENTITY_ADAPTERS: Registry[str, type[AlexaEntity]] = Registry()
 
 TRANSLATION_TABLE = dict.fromkeys(map(ord, r"}{\/|\"()[]+~!><*%"), None)
 
@@ -99,6 +99,9 @@ class DisplayCategory:
     # Netflix" scene might require the: 1. TV to be powered on & 2. Input set
     # to HDMI1. Applies to Scenes
     ACTIVITY_TRIGGER = "ACTIVITY_TRIGGER"
+
+    # Indicates a device that cools the air in interior spaces.
+    AIR_CONDITIONER = "AIR_CONDITIONER"
 
     # Indicates a device that emits pleasant odors and masks unpleasant odors in interior spaces.
     AIR_FRESHENER = "AIR_FRESHENER"
@@ -300,12 +303,6 @@ class AlexaEntity:
         """
         raise NotImplementedError
 
-    def get_interface(self, capability) -> AlexaCapability:
-        """Return the given AlexaInterface.
-
-        Raises _UnsupportedInterface.
-        """
-
     def interfaces(self) -> list[AlexaCapability]:
         """Return a list of supported interfaces.
 
@@ -382,7 +379,6 @@ def async_get_entities(hass, config) -> list[AlexaEntity]:
 @ENTITY_ADAPTERS.register(alert.DOMAIN)
 @ENTITY_ADAPTERS.register(automation.DOMAIN)
 @ENTITY_ADAPTERS.register(group.DOMAIN)
-@ENTITY_ADAPTERS.register(input_boolean.DOMAIN)
 class GenericCapabilities(AlexaEntity):
     """A generic, on/off device.
 
@@ -405,12 +401,16 @@ class GenericCapabilities(AlexaEntity):
         ]
 
 
+@ENTITY_ADAPTERS.register(input_boolean.DOMAIN)
 @ENTITY_ADAPTERS.register(switch.DOMAIN)
 class SwitchCapabilities(AlexaEntity):
     """Class to represent Switch capabilities."""
 
     def default_display_categories(self):
         """Return the display categories for this entity."""
+        if self.entity.domain == input_boolean.DOMAIN:
+            return [DisplayCategory.OTHER]
+
         device_class = self.entity.attributes.get(ATTR_DEVICE_CLASS)
         if device_class == switch.SwitchDeviceClass.OUTLET:
             return [DisplayCategory.SMARTPLUG]
@@ -421,6 +421,7 @@ class SwitchCapabilities(AlexaEntity):
         """Yield the supported interfaces."""
         return [
             AlexaPowerController(self.entity),
+            AlexaContactSensor(self.hass, self.entity),
             AlexaEndpointHealth(self.hass, self.entity),
             Alexa(self.hass),
         ]
@@ -439,6 +440,8 @@ class ButtonCapabilities(AlexaEntity):
         """Yield the supported interfaces."""
         return [
             AlexaSceneController(self.entity, supports_deactivation=False),
+            AlexaEventDetectionSensor(self.hass, self.entity),
+            AlexaEndpointHealth(self.hass, self.entity),
             Alexa(self.hass),
         ]
 
@@ -454,7 +457,7 @@ class ClimateCapabilities(AlexaEntity):
     def interfaces(self):
         """Yield the supported interfaces."""
         # If we support two modes, one being off, we allow turning on too.
-        if climate.HVAC_MODE_OFF in self.entity.attributes.get(
+        if climate.HVACMode.OFF in self.entity.attributes.get(
             climate.ATTR_HVAC_MODES, []
         ):
             yield AlexaPowerController(self.entity)
@@ -501,15 +504,17 @@ class CoverCapabilities(AlexaEntity):
             yield AlexaPowerController(self.entity)
 
         supported = self.entity.attributes.get(ATTR_SUPPORTED_FEATURES, 0)
-        if supported & cover.SUPPORT_SET_POSITION:
+        if supported & cover.CoverEntityFeature.SET_POSITION:
             yield AlexaRangeController(
                 self.entity, instance=f"{cover.DOMAIN}.{cover.ATTR_POSITION}"
             )
-        elif supported & (cover.SUPPORT_CLOSE | cover.SUPPORT_OPEN):
+        elif supported & (
+            cover.CoverEntityFeature.CLOSE | cover.CoverEntityFeature.OPEN
+        ):
             yield AlexaModeController(
                 self.entity, instance=f"{cover.DOMAIN}.{cover.ATTR_POSITION}"
             )
-        if supported & cover.SUPPORT_SET_TILT_POSITION:
+        if supported & cover.CoverEntityFeature.SET_TILT_POSITION:
             yield AlexaRangeController(self.entity, instance=f"{cover.DOMAIN}.tilt")
         yield AlexaEndpointHealth(self.hass, self.entity)
         yield Alexa(self.hass)
@@ -552,17 +557,17 @@ class FanCapabilities(AlexaEntity):
         yield AlexaPowerController(self.entity)
         force_range_controller = True
         supported = self.entity.attributes.get(ATTR_SUPPORTED_FEATURES, 0)
-        if supported & fan.SUPPORT_OSCILLATE:
+        if supported & fan.FanEntityFeature.OSCILLATE:
             yield AlexaToggleController(
                 self.entity, instance=f"{fan.DOMAIN}.{fan.ATTR_OSCILLATING}"
             )
             force_range_controller = False
-        if supported & fan.SUPPORT_PRESET_MODE:
+        if supported & fan.FanEntityFeature.PRESET_MODE:
             yield AlexaModeController(
                 self.entity, instance=f"{fan.DOMAIN}.{fan.ATTR_PRESET_MODE}"
             )
             force_range_controller = False
-        if supported & fan.SUPPORT_DIRECTION:
+        if supported & fan.FanEntityFeature.DIRECTION:
             yield AlexaModeController(
                 self.entity, instance=f"{fan.DOMAIN}.{fan.ATTR_DIRECTION}"
             )
@@ -572,10 +577,34 @@ class FanCapabilities(AlexaEntity):
         # For fans which only support on/off, no controller is added. This makes the
         # fan impossible to turn on or off through Alexa, most likely due to a bug in Alexa.
         # As a workaround, we add a range controller which can only be set to 0% or 100%.
-        if force_range_controller or supported & fan.SUPPORT_SET_SPEED:
+        if force_range_controller or supported & fan.FanEntityFeature.SET_SPEED:
             yield AlexaRangeController(
                 self.entity, instance=f"{fan.DOMAIN}.{fan.ATTR_PERCENTAGE}"
             )
+
+        yield AlexaEndpointHealth(self.hass, self.entity)
+        yield Alexa(self.hass)
+
+
+@ENTITY_ADAPTERS.register(humidifier.DOMAIN)
+class HumidifierCapabilities(AlexaEntity):
+    """Class to represent Humidifier capabilities."""
+
+    def default_display_categories(self):
+        """Return the display categories for this entity."""
+        return [DisplayCategory.OTHER]
+
+    def interfaces(self):
+        """Yield the supported interfaces."""
+        yield AlexaPowerController(self.entity)
+        supported = self.entity.attributes.get(ATTR_SUPPORTED_FEATURES, 0)
+        if supported & humidifier.HumidifierEntityFeature.MODES:
+            yield AlexaModeController(
+                self.entity, instance=f"{humidifier.DOMAIN}.{humidifier.ATTR_MODE}"
+            )
+        yield AlexaRangeController(
+            self.entity, instance=f"{humidifier.DOMAIN}.{humidifier.ATTR_HUMIDITY}"
+        )
 
         yield AlexaEndpointHealth(self.hass, self.entity)
         yield Alexa(self.hass)
@@ -615,26 +644,26 @@ class MediaPlayerCapabilities(AlexaEntity):
         yield AlexaPowerController(self.entity)
 
         supported = self.entity.attributes.get(ATTR_SUPPORTED_FEATURES, 0)
-        if supported & media_player.const.SUPPORT_VOLUME_SET:
+        if supported & media_player.MediaPlayerEntityFeature.VOLUME_SET:
             yield AlexaSpeaker(self.entity)
-        elif supported & media_player.const.SUPPORT_VOLUME_STEP:
+        elif supported & media_player.MediaPlayerEntityFeature.VOLUME_STEP:
             yield AlexaStepSpeaker(self.entity)
 
         playback_features = (
-            media_player.const.SUPPORT_PLAY
-            | media_player.const.SUPPORT_PAUSE
-            | media_player.const.SUPPORT_STOP
-            | media_player.const.SUPPORT_NEXT_TRACK
-            | media_player.const.SUPPORT_PREVIOUS_TRACK
+            media_player.MediaPlayerEntityFeature.PLAY
+            | media_player.MediaPlayerEntityFeature.PAUSE
+            | media_player.MediaPlayerEntityFeature.STOP
+            | media_player.MediaPlayerEntityFeature.NEXT_TRACK
+            | media_player.MediaPlayerEntityFeature.PREVIOUS_TRACK
         )
         if supported & playback_features:
             yield AlexaPlaybackController(self.entity)
             yield AlexaPlaybackStateReporter(self.entity)
 
-        if supported & media_player.const.SUPPORT_SEEK:
+        if supported & media_player.MediaPlayerEntityFeature.SEEK:
             yield AlexaSeekController(self.entity)
 
-        if supported & media_player.SUPPORT_SELECT_SOURCE:
+        if supported & media_player.MediaPlayerEntityFeature.SELECT_SOURCE:
             inputs = AlexaInputController.get_valid_inputs(
                 self.entity.attributes.get(
                     media_player.const.ATTR_INPUT_SOURCE_LIST, []
@@ -643,14 +672,14 @@ class MediaPlayerCapabilities(AlexaEntity):
             if len(inputs) > 0:
                 yield AlexaInputController(self.entity)
 
-        if supported & media_player.const.SUPPORT_PLAY_MEDIA:
+        if supported & media_player.MediaPlayerEntityFeature.PLAY_MEDIA:
             yield AlexaChannelController(self.entity)
 
         # AlexaEqualizerController is disabled for denonavr
         # since it blocks alexa from discovering any devices.
         domain = entity_sources(self.hass).get(self.entity_id, {}).get("domain")
         if (
-            supported & media_player.const.SUPPORT_SELECT_SOUND_MODE
+            supported & media_player.MediaPlayerEntityFeature.SELECT_SOUND_MODE
             and domain != "denonavr"
         ):
             inputs = AlexaEqualizerController.get_valid_inputs(
@@ -715,7 +744,10 @@ class SensorCapabilities(AlexaEntity):
     def interfaces(self):
         """Yield the supported interfaces."""
         attrs = self.entity.attributes
-        if attrs.get(ATTR_UNIT_OF_MEASUREMENT) in (TEMP_FAHRENHEIT, TEMP_CELSIUS):
+        if attrs.get(ATTR_UNIT_OF_MEASUREMENT) in {
+            UnitOfTemperature.FAHRENHEIT,
+            UnitOfTemperature.CELSIUS,
+        }:
             yield AlexaTemperatureSensor(self.hass, self.entity)
             yield AlexaEndpointHealth(self.hass, self.entity)
             yield Alexa(self.hass)
@@ -861,20 +893,21 @@ class VacuumCapabilities(AlexaEntity):
         """Yield the supported interfaces."""
         supported = self.entity.attributes.get(ATTR_SUPPORTED_FEATURES, 0)
         if (
-            (supported & vacuum.SUPPORT_TURN_ON) or (supported & vacuum.SUPPORT_START)
+            (supported & vacuum.VacuumEntityFeature.TURN_ON)
+            or (supported & vacuum.VacuumEntityFeature.START)
         ) and (
-            (supported & vacuum.SUPPORT_TURN_OFF)
-            or (supported & vacuum.SUPPORT_RETURN_HOME)
+            (supported & vacuum.VacuumEntityFeature.TURN_OFF)
+            or (supported & vacuum.VacuumEntityFeature.RETURN_HOME)
         ):
             yield AlexaPowerController(self.entity)
 
-        if supported & vacuum.SUPPORT_FAN_SPEED:
+        if supported & vacuum.VacuumEntityFeature.FAN_SPEED:
             yield AlexaRangeController(
                 self.entity, instance=f"{vacuum.DOMAIN}.{vacuum.ATTR_FAN_SPEED}"
             )
 
-        if supported & vacuum.SUPPORT_PAUSE:
-            support_resume = bool(supported & vacuum.SUPPORT_START)
+        if supported & vacuum.VacuumEntityFeature.PAUSE:
+            support_resume = bool(supported & vacuum.VacuumEntityFeature.START)
             yield AlexaTimeHoldController(
                 self.entity, allow_remote_resume=support_resume
             )
@@ -895,7 +928,7 @@ class CameraCapabilities(AlexaEntity):
         """Yield the supported interfaces."""
         if self._check_requirements():
             supported = self.entity.attributes.get(ATTR_SUPPORTED_FEATURES, 0)
-            if supported & camera.SUPPORT_STREAM:
+            if supported & camera.CameraEntityFeature.STREAM:
                 yield AlexaCameraStreamController(self.entity)
 
         yield AlexaEndpointHealth(self.hass, self.entity)

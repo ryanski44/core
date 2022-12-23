@@ -8,14 +8,12 @@
         },
         "step": {
             "discovery_confirm": {
-                "description": "M\u00f6chtest du {name} - {model} ( {host} ) einrichten?"
+                "description": "M\u00f6chtest du {name} - {model} ({host}) einrichten?"
             },
             "user": {
                 "data": {
                     "host": "Host"
-                },
-                "description": "Einrichten deiner Twinkly-Led-Kette",
-                "title": "Twinkly"
+                }
             }
         }
     }

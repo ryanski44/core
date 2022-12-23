@@ -1,6 +1,7 @@
 """Test against characteristics captured from a eufycam."""
 
-from tests.components.homekit_controller.common import (
+from ..common import (
+    HUB_TEST_ACCESSORY_ID,
     DeviceTestInfo,
     EntityTestInfo,
     assert_devices_and_entities_created,
@@ -17,7 +18,7 @@ async def test_eufycam_setup(hass):
     await assert_devices_and_entities_created(
         hass,
         DeviceTestInfo(
-            unique_id="00:00:00:00:00:00",
+            unique_id=HUB_TEST_ACCESSORY_ID,
             name="eufy HomeBase2-0AAA",
             model="T8010",
             manufacturer="Anker",
@@ -32,12 +33,13 @@ async def test_eufycam_setup(hass):
                     sw_version="1.6.7",
                     hw_version="1.0.0",
                     serial_number="A0000A000000000D",
+                    unique_id="00:00:00:00:00:00:aid:4",
                     devices=[],
                     entities=[
                         EntityTestInfo(
                             entity_id="camera.eufycam2_0000",
                             friendly_name="eufyCam2-0000",
-                            unique_id="homekit-A0000A000000000D-aid:4",
+                            unique_id="00:00:00:00:00:00_4",
                             state="idle",
                         ),
                     ],

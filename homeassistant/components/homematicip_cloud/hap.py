@@ -60,7 +60,6 @@ class HomematicipAuth:
 
     async def get_auth(self, hass: HomeAssistant, hapid, pin):
         """Create a HomematicIP access point object."""
-        # pylint: disable=no-self-use
         auth = AsyncAuth(hass.loop, async_get_clientsession(hass))
         try:
             await auth.init(hapid)
@@ -191,8 +190,10 @@ class HomematicipHAP:
                 await hmip_events
             except HmipConnectionError:
                 _LOGGER.error(
-                    "Error connecting to HomematicIP with HAP %s. "
-                    "Retrying in %d seconds",
+                    (
+                        "Error connecting to HomematicIP with HAP %s. "
+                        "Retrying in %d seconds"
+                    ),
                     self.config_entry.unique_id,
                     retry_delay,
                 )

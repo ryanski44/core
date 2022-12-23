@@ -11,6 +11,8 @@ from homeassistant.components.rfxtrx import DOMAIN
 from homeassistant.helpers.device_registry import DeviceRegistry
 from homeassistant.setup import async_setup_component
 
+from .conftest import create_rfx_test_cfg
+
 from tests.common import (
     MockConfigEntry,
     assert_lists_same,
@@ -18,7 +20,6 @@ from tests.common import (
     async_mock_service,
     mock_device_registry,
 )
-from tests.components.rfxtrx.conftest import create_rfx_test_cfg
 
 
 class EventTestData(NamedTuple):
@@ -85,12 +86,18 @@ async def setup_entry(hass, devices):
 )
 async def test_get_triggers(hass, device_reg, event: EventTestData, expected):
     """Test we get the expected triggers from a rfxtrx."""
-    await setup_entry(hass, {event.code: {"signal_repetitions": 1}})
+    await setup_entry(hass, {event.code: {}})
 
     device_entry = device_reg.async_get_device(event.device_identifiers, set())
 
     expected_triggers = [
-        {"domain": DOMAIN, "device_id": device_entry.id, "platform": "device", **expect}
+        {
+            "domain": DOMAIN,
+            "device_id": device_entry.id,
+            "platform": "device",
+            "metadata": {},
+            **expect,
+        }
         for expect in expected
     ]
 
@@ -112,7 +119,7 @@ async def test_get_triggers(hass, device_reg, event: EventTestData, expected):
 async def test_firing_event(hass, device_reg: DeviceRegistry, rfxtrx, event):
     """Test for turn_on and turn_off triggers firing."""
 
-    await setup_entry(hass, {event.code: {"fire_event": True, "signal_repetitions": 1}})
+    await setup_entry(hass, {event.code: {"fire_event": True}})
 
     device_entry = device_reg.async_get_device(event.device_identifiers, set())
     assert device_entry
@@ -148,11 +155,11 @@ async def test_firing_event(hass, device_reg: DeviceRegistry, rfxtrx, event):
     assert calls[0].data["some"] == "device"
 
 
-async def test_invalid_trigger(hass, device_reg: DeviceRegistry):
+async def test_invalid_trigger(hass, device_reg: DeviceRegistry, caplog):
     """Test for invalid actions."""
     event = EVENT_LIGHTING_1
 
-    await setup_entry(hass, {event.code: {"fire_event": True, "signal_repetitions": 1}})
+    await setup_entry(hass, {event.code: {"fire_event": True}})
 
     device_identifers: Any = event.device_identifiers
     device_entry = device_reg.async_get_device(device_identifers, set())
@@ -181,8 +188,4 @@ async def test_invalid_trigger(hass, device_reg: DeviceRegistry):
     )
     await hass.async_block_till_done()
 
-    assert len(notifications := hass.states.async_all("persistent_notification")) == 1
-    assert (
-        "The following integrations and platforms could not be set up"
-        in notifications[0].attributes["message"]
-    )
+    assert "Subtype invalid not found in device triggers" in caplog.text

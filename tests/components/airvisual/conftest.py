@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from homeassistant.components.airvisual import (
+from homeassistant.components.airvisual.const import (
     CONF_INTEGRATION_TYPE,
     DOMAIN,
     INTEGRATION_TYPE_GEOGRAPHY_COORDS,
@@ -50,7 +50,7 @@ def config_fixture(hass):
     }
 
 
-@pytest.fixture(name="data", scope="session")
+@pytest.fixture(name="data", scope="package")
 def data_fixture():
     """Define an update coordinator data example."""
     return json.loads(load_fixture("data.json", "airvisual"))

@@ -4,14 +4,15 @@
             "already_configured": "A hely m\u00e1r konfigur\u00e1lva van"
         },
         "error": {
-            "cannot_connect": "Csatlakoz\u00e1si hiba"
+            "cannot_connect": "Csatlakoz\u00e1si hiba",
+            "invalid_auth": "\u00c9rv\u00e9nytelen hiteles\u00edt\u00e9s"
         },
         "step": {
             "user": {
                 "data": {
                     "api_key": "Api kucs",
                     "destination": "C\u00e9l",
-                    "name": "N\u00e9v",
+                    "name": "Elnevez\u00e9s",
                     "origin": "Eredet"
                 },
                 "description": "Az eredet \u00e9s a c\u00e9l megad\u00e1sakor megadhat egy vagy t\u00f6bb helyet a pipa karakterrel elv\u00e1lasztva, c\u00edm, sz\u00e9less\u00e9gi / hossz\u00fas\u00e1gi koordin\u00e1t\u00e1k vagy Google helyazonos\u00edt\u00f3 form\u00e1j\u00e1ban. Amikor a helyet megadja egy Google helyazonos\u00edt\u00f3val, akkor az azonos\u00edt\u00f3t el\u0151taggal kell ell\u00e1tni a `hely_azonos\u00edt\u00f3:` sz\u00f3val."
@@ -27,6 +28,7 @@
                     "mode": "Utaz\u00e1si m\u00f3d",
                     "time": "Id\u0151",
                     "time_type": "Id\u0151 t\u00edpusa",
+                    "traffic_mode": "Forgalmi m\u00f3d",
                     "transit_mode": "Tranzit m\u00f3d",
                     "transit_routing_preference": "Tranzit \u00fatv\u00e1laszt\u00e1si be\u00e1ll\u00edt\u00e1s",
                     "units": "Egys\u00e9gek"

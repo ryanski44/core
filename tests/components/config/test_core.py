@@ -10,8 +10,6 @@ from homeassistant.components.websocket_api.const import TYPE_RESULT
 from homeassistant.const import CONF_UNIT_SYSTEM, CONF_UNIT_SYSTEM_IMPERIAL
 from homeassistant.util import dt as dt_util, location
 
-ORIG_TIME_ZONE = dt_util.DEFAULT_TIME_ZONE
-
 
 @pytest.fixture
 async def client(hass, hass_ws_client):
@@ -62,6 +60,8 @@ async def test_websocket_core_update(hass, client):
     assert hass.config.external_url != "https://www.example.com"
     assert hass.config.internal_url != "http://example.com"
     assert hass.config.currency == "EUR"
+    assert hass.config.country != "SE"
+    assert hass.config.language != "sv"
 
     with patch("homeassistant.util.dt.set_default_time_zone") as mock_set_tz:
         await client.send_json(
@@ -77,6 +77,8 @@ async def test_websocket_core_update(hass, client):
                 "external_url": "https://www.example.com",
                 "internal_url": "http://example.local",
                 "currency": "USD",
+                "country": "SE",
+                "language": "sv",
             }
         )
 

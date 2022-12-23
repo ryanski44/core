@@ -1,8 +1,11 @@
 """Tests for handling accessories on a Hue bridge via HomeKit."""
 
+from homeassistant.components.sensor import SensorStateClass
 from homeassistant.const import PERCENTAGE
+from homeassistant.helpers.entity import EntityCategory
 
-from tests.components.homekit_controller.common import (
+from ..common import (
+    HUB_TEST_ACCESSORY_ID,
     DeviceTestInfo,
     DeviceTriggerInfo,
     EntityTestInfo,
@@ -20,7 +23,7 @@ async def test_hue_bridge_setup(hass):
     await assert_devices_and_entities_created(
         hass,
         DeviceTestInfo(
-            unique_id="00:00:00:00:00:00",
+            unique_id=HUB_TEST_ACCESSORY_ID,
             name="Philips hue - 482544",
             model="BSB002",
             manufacturer="Philips Lighting",
@@ -35,12 +38,15 @@ async def test_hue_bridge_setup(hass):
                     sw_version="45.1.17846",
                     hw_version="",
                     serial_number="6623462389072572",
+                    unique_id="00:00:00:00:00:00:aid:6623462389072572",
                     devices=[],
                     entities=[
                         EntityTestInfo(
                             entity_id="sensor.hue_dimmer_switch_battery",
-                            friendly_name="Hue dimmer switch Battery",
-                            unique_id="homekit-6623462389072572-644245094400",
+                            capabilities={"state_class": SensorStateClass.MEASUREMENT},
+                            friendly_name="Hue dimmer switch battery",
+                            entity_category=EntityCategory.DIAGNOSTIC,
+                            unique_id="00:00:00:00:00:00_6623462389072572_644245094400",
                             unit_of_measurement=PERCENTAGE,
                             state="100",
                         )

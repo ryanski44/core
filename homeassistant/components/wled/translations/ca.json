@@ -2,7 +2,8 @@
     "config": {
         "abort": {
             "already_configured": "El dispositiu ja est\u00e0 configurat",
-            "cannot_connect": "Ha fallat la connexi\u00f3"
+            "cannot_connect": "Ha fallat la connexi\u00f3",
+            "cct_unsupported": "Aquest dispositiu WLED utilitza canals CCT que no s\u00f3n compatibles amb aquesta integraci\u00f3"
         },
         "error": {
             "cannot_connect": "Ha fallat la connexi\u00f3"
@@ -18,6 +19,17 @@
             "zeroconf_confirm": {
                 "description": "Vols afegir el WLED `{name}` a Home Assistant?",
                 "title": "Dispositiu WLED descobert"
+            }
+        }
+    },
+    "entity": {
+        "select": {
+            "live_override": {
+                "state": {
+                    "0": "OFF",
+                    "1": "ON",
+                    "2": "Fins que el dispositiu es reinici\u00ef"
+                }
             }
         }
     },

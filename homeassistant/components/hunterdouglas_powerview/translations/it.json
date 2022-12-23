@@ -10,14 +10,14 @@
         "flow_title": "{name} ({host})",
         "step": {
             "link": {
-                "description": "Vuoi impostare {name} ({host})?",
-                "title": "Connettersi all'Hub PowerView"
+                "description": "Vuoi configurare {name} ({host})?",
+                "title": "Connettiti all'Hub PowerView"
             },
             "user": {
                 "data": {
                     "host": "Indirizzo IP"
                 },
-                "title": "Collegamento al PowerView Hub"
+                "title": "Connettiti al PowerView Hub"
             }
         }
     }

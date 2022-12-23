@@ -3,12 +3,9 @@ from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.renault.const import (
     CONF_KAMEREON_ACCOUNT_ID,
     CONF_LOCALE,
-    DEVICE_CLASS_CHARGE_MODE,
-    DEVICE_CLASS_CHARGE_STATE,
-    DEVICE_CLASS_PLUG_STATE,
     DOMAIN,
 )
-from homeassistant.components.select.const import ATTR_OPTIONS
+from homeassistant.components.select import ATTR_OPTIONS
 from homeassistant.components.sensor import (
     ATTR_STATE_CLASS,
     SensorDeviceClass,
@@ -27,7 +24,6 @@ from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
     CONF_PASSWORD,
     CONF_USERNAME,
-    ELECTRIC_CURRENT_AMPERE,
     ENERGY_KILO_WATT_HOUR,
     LENGTH_KILOMETERS,
     PERCENTAGE,
@@ -54,6 +50,7 @@ FIXED_ATTRIBUTES = (
 DYNAMIC_ATTRIBUTES = (ATTR_ICON,)
 
 ICON_FOR_EMPTY_VALUES = {
+    "binary_sensor.reg_number_hvac": "mdi:fan-off",
     "select.reg_number_charge_mode": "mdi:calendar-remove",
     "sensor.reg_number_charge_state": "mdi:flash-off",
     "sensor.reg_number_plug_state": "mdi:power-plug-off",
@@ -78,18 +75,11 @@ MOCK_VEHICLES = {
             ATTR_NAME: "REG-NUMBER",
             ATTR_SW_VERSION: "X101VE",
         },
-        "endpoints_available": [
-            True,  # cockpit
-            True,  # hvac-status
-            False,  # location
-            True,  # battery-status
-            True,  # charge-mode
-        ],
         "endpoints": {
             "battery_status": "battery_status_charging.json",
             "charge_mode": "charge_mode_always.json",
             "cockpit": "cockpit_ev.json",
-            "hvac_status": "hvac_status.json",
+            "hvac_status": "hvac_status.1.json",
         },
         Platform.BINARY_SENSOR: [
             {
@@ -103,6 +93,12 @@ MOCK_VEHICLES = {
                 ATTR_ENTITY_ID: "binary_sensor.reg_number_charging",
                 ATTR_STATE: STATE_ON,
                 ATTR_UNIQUE_ID: "vf1aaaaa555777999_charging",
+            },
+            {
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_hvac",
+                ATTR_ICON: "mdi:fan-off",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_hvac_status",
             },
         ],
         Platform.BUTTON: [
@@ -122,7 +118,6 @@ MOCK_VEHICLES = {
         Platform.DEVICE_TRACKER: [],
         Platform.SELECT: [
             {
-                ATTR_DEVICE_CLASS: DEVICE_CLASS_CHARGE_MODE,
                 ATTR_ENTITY_ID: "select.reg_number_charge_mode",
                 ATTR_ICON: "mdi:calendar-remove",
                 ATTR_OPTIONS: ["always", "always_charging", "schedule_mode"],
@@ -132,6 +127,7 @@ MOCK_VEHICLES = {
         ],
         Platform.SENSOR: [
             {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.DISTANCE,
                 ATTR_ENTITY_ID: "sensor.reg_number_battery_autonomy",
                 ATTR_ICON: "mdi:ev-station",
                 ATTR_STATE: "141",
@@ -171,9 +167,19 @@ MOCK_VEHICLES = {
                 ATTR_UNIT_OF_MEASUREMENT: TEMP_CELSIUS,
             },
             {
-                ATTR_DEVICE_CLASS: DEVICE_CLASS_CHARGE_STATE,
+                ATTR_DEVICE_CLASS: SensorDeviceClass.ENUM,
                 ATTR_ENTITY_ID: "sensor.reg_number_charge_state",
                 ATTR_ICON: "mdi:flash",
+                ATTR_OPTIONS: [
+                    "not_in_charge",
+                    "waiting_for_a_planned_charge",
+                    "charge_ended",
+                    "waiting_for_current_charge",
+                    "energy_flap_opened",
+                    "charge_in_progress",
+                    "charge_error",
+                    "unavailable",
+                ],
                 ATTR_STATE: "charge_in_progress",
                 ATTR_UNIQUE_ID: "vf1aaaaa555777999_charge_state",
             },
@@ -194,6 +200,7 @@ MOCK_VEHICLES = {
                 ATTR_UNIT_OF_MEASUREMENT: TIME_MINUTES,
             },
             {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.DISTANCE,
                 ATTR_ENTITY_ID: "sensor.reg_number_mileage",
                 ATTR_ICON: "mdi:sign-direction",
                 ATTR_STATE: "49114",
@@ -210,11 +217,36 @@ MOCK_VEHICLES = {
                 ATTR_UNIT_OF_MEASUREMENT: TEMP_CELSIUS,
             },
             {
-                ATTR_DEVICE_CLASS: DEVICE_CLASS_PLUG_STATE,
+                ATTR_ENTITY_ID: "sensor.reg_number_hvac_soc_threshold",
+                ATTR_STATE: STATE_UNKNOWN,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_hvac_soc_threshold",
+                ATTR_UNIT_OF_MEASUREMENT: PERCENTAGE,
+            },
+            {
+                ATTR_DEFAULT_DISABLED: True,
+                ATTR_DEVICE_CLASS: SensorDeviceClass.TIMESTAMP,
+                ATTR_ENTITY_ID: "sensor.reg_number_hvac_last_activity",
+                ATTR_STATE: STATE_UNKNOWN,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_hvac_last_activity",
+            },
+            {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.ENUM,
                 ATTR_ENTITY_ID: "sensor.reg_number_plug_state",
                 ATTR_ICON: "mdi:power-plug",
+                ATTR_OPTIONS: ["unplugged", "plugged", "plug_error", "plug_unknown"],
                 ATTR_STATE: "plugged",
                 ATTR_UNIQUE_ID: "vf1aaaaa555777999_plug_state",
+            },
+            {
+                ATTR_ENTITY_ID: "sensor.reg_number_remote_engine_start",
+                ATTR_STATE: STATE_UNKNOWN,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_res_state",
+            },
+            {
+                ATTR_DEFAULT_DISABLED: True,
+                ATTR_ENTITY_ID: "sensor.reg_number_remote_engine_start_code",
+                ATTR_STATE: STATE_UNKNOWN,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_res_state_code",
             },
         ],
     },
@@ -226,18 +258,14 @@ MOCK_VEHICLES = {
             ATTR_NAME: "REG-NUMBER",
             ATTR_SW_VERSION: "X102VE",
         },
-        "endpoints_available": [
-            True,  # cockpit
-            False,  # hvac-status
-            True,  # location
-            True,  # battery-status
-            True,  # charge-mode
-        ],
         "endpoints": {
             "battery_status": "battery_status_not_charging.json",
             "charge_mode": "charge_mode_schedule.json",
             "cockpit": "cockpit_ev.json",
+            "hvac_status": "hvac_status.2.json",
             "location": "location.json",
+            "lock_status": "lock_status.1.json",
+            "res_state": "res_state.1.json",
         },
         Platform.BINARY_SENSOR: [
             {
@@ -251,6 +279,48 @@ MOCK_VEHICLES = {
                 ATTR_ENTITY_ID: "binary_sensor.reg_number_charging",
                 ATTR_STATE: STATE_OFF,
                 ATTR_UNIQUE_ID: "vf1aaaaa555777999_charging",
+            },
+            {
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_hvac",
+                ATTR_ICON: "mdi:fan-off",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_hvac_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.LOCK,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_lock",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_lock_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_rear_left_door",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_rear_left_door_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_rear_right_door",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_rear_right_door_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_driver_door",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_driver_door_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_passenger_door",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_passenger_door_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_hatch",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_hatch_status",
             },
         ],
         Platform.BUTTON: [
@@ -277,7 +347,6 @@ MOCK_VEHICLES = {
         ],
         Platform.SELECT: [
             {
-                ATTR_DEVICE_CLASS: DEVICE_CLASS_CHARGE_MODE,
                 ATTR_ENTITY_ID: "select.reg_number_charge_mode",
                 ATTR_ICON: "mdi:calendar-clock",
                 ATTR_OPTIONS: ["always", "always_charging", "schedule_mode"],
@@ -287,6 +356,7 @@ MOCK_VEHICLES = {
         ],
         Platform.SENSOR: [
             {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.DISTANCE,
                 ATTR_ENTITY_ID: "sensor.reg_number_battery_autonomy",
                 ATTR_ICON: "mdi:ev-station",
                 ATTR_STATE: "128",
@@ -326,19 +396,29 @@ MOCK_VEHICLES = {
                 ATTR_UNIT_OF_MEASUREMENT: TEMP_CELSIUS,
             },
             {
-                ATTR_DEVICE_CLASS: DEVICE_CLASS_CHARGE_STATE,
+                ATTR_DEVICE_CLASS: SensorDeviceClass.ENUM,
                 ATTR_ENTITY_ID: "sensor.reg_number_charge_state",
                 ATTR_ICON: "mdi:flash-off",
+                ATTR_OPTIONS: [
+                    "not_in_charge",
+                    "waiting_for_a_planned_charge",
+                    "charge_ended",
+                    "waiting_for_current_charge",
+                    "energy_flap_opened",
+                    "charge_in_progress",
+                    "charge_error",
+                    "unavailable",
+                ],
                 ATTR_STATE: "charge_error",
                 ATTR_UNIQUE_ID: "vf1aaaaa555777999_charge_state",
             },
             {
-                ATTR_DEVICE_CLASS: SensorDeviceClass.CURRENT,
-                ATTR_ENTITY_ID: "sensor.reg_number_charging_power",
+                ATTR_DEVICE_CLASS: SensorDeviceClass.POWER,
+                ATTR_ENTITY_ID: "sensor.reg_number_admissible_charging_power",
                 ATTR_STATE: STATE_UNKNOWN,
                 ATTR_STATE_CLASS: SensorStateClass.MEASUREMENT,
                 ATTR_UNIQUE_ID: "vf1aaaaa555777999_charging_power",
-                ATTR_UNIT_OF_MEASUREMENT: ELECTRIC_CURRENT_AMPERE,
+                ATTR_UNIT_OF_MEASUREMENT: POWER_KILO_WATT,
             },
             {
                 ATTR_ENTITY_ID: "sensor.reg_number_charging_remaining_time",
@@ -349,6 +429,7 @@ MOCK_VEHICLES = {
                 ATTR_UNIT_OF_MEASUREMENT: TIME_MINUTES,
             },
             {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.DISTANCE,
                 ATTR_ENTITY_ID: "sensor.reg_number_mileage",
                 ATTR_ICON: "mdi:sign-direction",
                 ATTR_STATE: "49114",
@@ -357,9 +438,31 @@ MOCK_VEHICLES = {
                 ATTR_UNIT_OF_MEASUREMENT: LENGTH_KILOMETERS,
             },
             {
-                ATTR_DEVICE_CLASS: DEVICE_CLASS_PLUG_STATE,
+                ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
+                ATTR_ENTITY_ID: "sensor.reg_number_outside_temperature",
+                ATTR_STATE: STATE_UNKNOWN,
+                ATTR_STATE_CLASS: SensorStateClass.MEASUREMENT,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_outside_temperature",
+                ATTR_UNIT_OF_MEASUREMENT: TEMP_CELSIUS,
+            },
+            {
+                ATTR_ENTITY_ID: "sensor.reg_number_hvac_soc_threshold",
+                ATTR_STATE: "30.0",
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_hvac_soc_threshold",
+                ATTR_UNIT_OF_MEASUREMENT: PERCENTAGE,
+            },
+            {
+                ATTR_DEFAULT_DISABLED: True,
+                ATTR_DEVICE_CLASS: SensorDeviceClass.TIMESTAMP,
+                ATTR_ENTITY_ID: "sensor.reg_number_hvac_last_activity",
+                ATTR_STATE: "2020-12-03T00:00:00+00:00",
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_hvac_last_activity",
+            },
+            {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.ENUM,
                 ATTR_ENTITY_ID: "sensor.reg_number_plug_state",
                 ATTR_ICON: "mdi:power-plug-off",
+                ATTR_OPTIONS: ["unplugged", "plugged", "plug_error", "plug_unknown"],
                 ATTR_STATE: "unplugged",
                 ATTR_UNIQUE_ID: "vf1aaaaa555777999_plug_state",
             },
@@ -369,6 +472,17 @@ MOCK_VEHICLES = {
                 ATTR_ENTITY_ID: "sensor.reg_number_location_last_activity",
                 ATTR_STATE: "2020-02-18T16:58:38+00:00",
                 ATTR_UNIQUE_ID: "vf1aaaaa555777999_location_last_activity",
+            },
+            {
+                ATTR_ENTITY_ID: "sensor.reg_number_remote_engine_start",
+                ATTR_STATE: "Stopped, ready for RES",
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_res_state",
+            },
+            {
+                ATTR_DEFAULT_DISABLED: True,
+                ATTR_ENTITY_ID: "sensor.reg_number_remote_engine_start_code",
+                ATTR_STATE: "10",
+                ATTR_UNIQUE_ID: "vf1aaaaa555777999_res_state_code",
             },
         ],
     },
@@ -380,18 +494,13 @@ MOCK_VEHICLES = {
             ATTR_NAME: "REG-NUMBER",
             ATTR_SW_VERSION: "XJB1SU",
         },
-        "endpoints_available": [
-            True,  # cockpit
-            False,  # hvac-status
-            True,  # location
-            True,  # battery-status
-            True,  # charge-mode
-        ],
         "endpoints": {
             "battery_status": "battery_status_charging.json",
             "charge_mode": "charge_mode_always.json",
             "cockpit": "cockpit_fuel.json",
             "location": "location.json",
+            "lock_status": "lock_status.1.json",
+            "res_state": "res_state.1.json",
         },
         Platform.BINARY_SENSOR: [
             {
@@ -405,6 +514,42 @@ MOCK_VEHICLES = {
                 ATTR_ENTITY_ID: "binary_sensor.reg_number_charging",
                 ATTR_STATE: STATE_ON,
                 ATTR_UNIQUE_ID: "vf1aaaaa555777123_charging",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.LOCK,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_lock",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_lock_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_rear_left_door",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_rear_left_door_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_rear_right_door",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_rear_right_door_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_driver_door",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_driver_door_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_passenger_door",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_passenger_door_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_hatch",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_hatch_status",
             },
         ],
         Platform.BUTTON: [
@@ -431,7 +576,6 @@ MOCK_VEHICLES = {
         ],
         Platform.SELECT: [
             {
-                ATTR_DEVICE_CLASS: DEVICE_CLASS_CHARGE_MODE,
                 ATTR_ENTITY_ID: "select.reg_number_charge_mode",
                 ATTR_ICON: "mdi:calendar-remove",
                 ATTR_OPTIONS: ["always", "always_charging", "schedule_mode"],
@@ -441,6 +585,7 @@ MOCK_VEHICLES = {
         ],
         Platform.SENSOR: [
             {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.DISTANCE,
                 ATTR_ENTITY_ID: "sensor.reg_number_battery_autonomy",
                 ATTR_ICON: "mdi:ev-station",
                 ATTR_STATE: "141",
@@ -480,19 +625,29 @@ MOCK_VEHICLES = {
                 ATTR_UNIT_OF_MEASUREMENT: TEMP_CELSIUS,
             },
             {
-                ATTR_DEVICE_CLASS: DEVICE_CLASS_CHARGE_STATE,
+                ATTR_DEVICE_CLASS: SensorDeviceClass.ENUM,
                 ATTR_ENTITY_ID: "sensor.reg_number_charge_state",
                 ATTR_ICON: "mdi:flash",
+                ATTR_OPTIONS: [
+                    "not_in_charge",
+                    "waiting_for_a_planned_charge",
+                    "charge_ended",
+                    "waiting_for_current_charge",
+                    "energy_flap_opened",
+                    "charge_in_progress",
+                    "charge_error",
+                    "unavailable",
+                ],
                 ATTR_STATE: "charge_in_progress",
                 ATTR_UNIQUE_ID: "vf1aaaaa555777123_charge_state",
             },
             {
-                ATTR_DEVICE_CLASS: SensorDeviceClass.CURRENT,
-                ATTR_ENTITY_ID: "sensor.reg_number_charging_power",
+                ATTR_DEVICE_CLASS: SensorDeviceClass.POWER,
+                ATTR_ENTITY_ID: "sensor.reg_number_admissible_charging_power",
                 ATTR_STATE: "27.0",
                 ATTR_STATE_CLASS: SensorStateClass.MEASUREMENT,
                 ATTR_UNIQUE_ID: "vf1aaaaa555777123_charging_power",
-                ATTR_UNIT_OF_MEASUREMENT: ELECTRIC_CURRENT_AMPERE,
+                ATTR_UNIT_OF_MEASUREMENT: POWER_KILO_WATT,
             },
             {
                 ATTR_ENTITY_ID: "sensor.reg_number_charging_remaining_time",
@@ -503,6 +658,7 @@ MOCK_VEHICLES = {
                 ATTR_UNIT_OF_MEASUREMENT: TIME_MINUTES,
             },
             {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.DISTANCE,
                 ATTR_ENTITY_ID: "sensor.reg_number_fuel_autonomy",
                 ATTR_ICON: "mdi:gas-station",
                 ATTR_STATE: "35",
@@ -511,6 +667,7 @@ MOCK_VEHICLES = {
                 ATTR_UNIT_OF_MEASUREMENT: LENGTH_KILOMETERS,
             },
             {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.VOLUME,
                 ATTR_ENTITY_ID: "sensor.reg_number_fuel_quantity",
                 ATTR_ICON: "mdi:fuel",
                 ATTR_STATE: "3",
@@ -519,6 +676,7 @@ MOCK_VEHICLES = {
                 ATTR_UNIT_OF_MEASUREMENT: VOLUME_LITERS,
             },
             {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.DISTANCE,
                 ATTR_ENTITY_ID: "sensor.reg_number_mileage",
                 ATTR_ICON: "mdi:sign-direction",
                 ATTR_STATE: "5567",
@@ -527,9 +685,10 @@ MOCK_VEHICLES = {
                 ATTR_UNIT_OF_MEASUREMENT: LENGTH_KILOMETERS,
             },
             {
-                ATTR_DEVICE_CLASS: DEVICE_CLASS_PLUG_STATE,
+                ATTR_DEVICE_CLASS: SensorDeviceClass.ENUM,
                 ATTR_ENTITY_ID: "sensor.reg_number_plug_state",
                 ATTR_ICON: "mdi:power-plug",
+                ATTR_OPTIONS: ["unplugged", "plugged", "plug_error", "plug_unknown"],
                 ATTR_STATE: "plugged",
                 ATTR_UNIQUE_ID: "vf1aaaaa555777123_plug_state",
             },
@@ -539,6 +698,17 @@ MOCK_VEHICLES = {
                 ATTR_ENTITY_ID: "sensor.reg_number_location_last_activity",
                 ATTR_STATE: "2020-02-18T16:58:38+00:00",
                 ATTR_UNIQUE_ID: "vf1aaaaa555777123_location_last_activity",
+            },
+            {
+                ATTR_ENTITY_ID: "sensor.reg_number_remote_engine_start",
+                ATTR_STATE: "Stopped, ready for RES",
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_res_state",
+            },
+            {
+                ATTR_DEFAULT_DISABLED: True,
+                ATTR_ENTITY_ID: "sensor.reg_number_remote_engine_start_code",
+                ATTR_STATE: "10",
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_res_state_code",
             },
         ],
     },
@@ -550,18 +720,50 @@ MOCK_VEHICLES = {
             ATTR_NAME: "REG-NUMBER",
             ATTR_SW_VERSION: "XJB1SU",
         },
-        "endpoints_available": [
-            True,  # cockpit
-            False,  # hvac-status
-            True,  # location
-            # Ignore,  # battery-status
-            # Ignore,  # charge-mode
-        ],
         "endpoints": {
             "cockpit": "cockpit_fuel.json",
             "location": "location.json",
+            "lock_status": "lock_status.1.json",
+            "res_state": "res_state.1.json",
         },
-        Platform.BINARY_SENSOR: [],
+        Platform.BINARY_SENSOR: [
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.LOCK,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_lock",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_lock_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_rear_left_door",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_rear_left_door_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_rear_right_door",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_rear_right_door_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_driver_door",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_driver_door_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_passenger_door",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_passenger_door_status",
+            },
+            {
+                ATTR_DEVICE_CLASS: BinarySensorDeviceClass.DOOR,
+                ATTR_ENTITY_ID: "binary_sensor.reg_number_hatch",
+                ATTR_STATE: STATE_OFF,
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_hatch_status",
+            },
+        ],
         Platform.BUTTON: [
             {
                 ATTR_ENTITY_ID: "button.reg_number_start_air_conditioner",
@@ -581,6 +783,7 @@ MOCK_VEHICLES = {
         Platform.SELECT: [],
         Platform.SENSOR: [
             {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.DISTANCE,
                 ATTR_ENTITY_ID: "sensor.reg_number_fuel_autonomy",
                 ATTR_ICON: "mdi:gas-station",
                 ATTR_STATE: "35",
@@ -589,6 +792,7 @@ MOCK_VEHICLES = {
                 ATTR_UNIT_OF_MEASUREMENT: LENGTH_KILOMETERS,
             },
             {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.VOLUME,
                 ATTR_ENTITY_ID: "sensor.reg_number_fuel_quantity",
                 ATTR_ICON: "mdi:fuel",
                 ATTR_STATE: "3",
@@ -597,6 +801,7 @@ MOCK_VEHICLES = {
                 ATTR_UNIT_OF_MEASUREMENT: VOLUME_LITERS,
             },
             {
+                ATTR_DEVICE_CLASS: SensorDeviceClass.DISTANCE,
                 ATTR_ENTITY_ID: "sensor.reg_number_mileage",
                 ATTR_ICON: "mdi:sign-direction",
                 ATTR_STATE: "5567",
@@ -610,6 +815,17 @@ MOCK_VEHICLES = {
                 ATTR_ENTITY_ID: "sensor.reg_number_location_last_activity",
                 ATTR_STATE: "2020-02-18T16:58:38+00:00",
                 ATTR_UNIQUE_ID: "vf1aaaaa555777123_location_last_activity",
+            },
+            {
+                ATTR_ENTITY_ID: "sensor.reg_number_remote_engine_start",
+                ATTR_STATE: "Stopped, ready for RES",
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_res_state",
+            },
+            {
+                ATTR_DEFAULT_DISABLED: True,
+                ATTR_ENTITY_ID: "sensor.reg_number_remote_engine_start_code",
+                ATTR_STATE: "10",
+                ATTR_UNIQUE_ID: "vf1aaaaa555777123_res_state_code",
             },
         ],
     },

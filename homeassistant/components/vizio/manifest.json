@@ -7,5 +7,7 @@
   "config_flow": true,
   "zeroconf": ["_viziocast._tcp.local."],
   "quality_scale": "platinum",
-  "iot_class": "local_polling"
+  "iot_class": "local_polling",
+  "loggers": ["pyvizio"],
+  "integration_type": "hub"
 }

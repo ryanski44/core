@@ -1,20 +1,24 @@
 """Component to interface with various sensors that can be monitored."""
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-import inspect
+from decimal import Decimal, InvalidOperation as DecimalInvalidOperation
 import logging
+from math import floor, log10
 from typing import Any, Final, cast, final
 
-import ciso8601
 import voluptuous as vol
 
 from homeassistant.backports.enum import StrEnum
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (  # noqa: F401
+from homeassistant.const import (  # noqa: F401, pylint: disable=[hass-deprecated-import]
+    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+    CONCENTRATION_PARTS_PER_MILLION,
+    CONF_UNIT_OF_MEASUREMENT,
     DEVICE_CLASS_AQI,
     DEVICE_CLASS_BATTERY,
     DEVICE_CLASS_CO,
@@ -43,17 +47,52 @@ from homeassistant.const import (  # noqa: F401
     DEVICE_CLASS_TIMESTAMP,
     DEVICE_CLASS_VOLATILE_ORGANIC_COMPOUNDS,
     DEVICE_CLASS_VOLTAGE,
-    TEMP_CELSIUS,
-    TEMP_FAHRENHEIT,
+    LIGHT_LUX,
+    PERCENTAGE,
+    POWER_VOLT_AMPERE_REACTIVE,
+    SIGNAL_STRENGTH_DECIBELS,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    UnitOfApparentPower,
+    UnitOfDataRate,
+    UnitOfElectricCurrent,
+    UnitOfElectricPotential,
+    UnitOfEnergy,
+    UnitOfFrequency,
+    UnitOfInformation,
+    UnitOfIrradiance,
+    UnitOfLength,
+    UnitOfMass,
+    UnitOfPower,
+    UnitOfPrecipitationDepth,
+    UnitOfPressure,
+    UnitOfSoundPressure,
+    UnitOfSpeed,
+    UnitOfTemperature,
+    UnitOfTime,
+    UnitOfVolume,
+    UnitOfVolumetricFlux,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.config_validation import (  # noqa: F401
     PLATFORM_SCHEMA,
     PLATFORM_SCHEMA_BASE,
 )
 from homeassistant.helpers.entity import Entity, EntityDescription
 from homeassistant.helpers.entity_component import EntityComponent
+from homeassistant.helpers.entity_platform import EntityPlatform
+from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.helpers.typing import ConfigType, StateType
+from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import (
+    BaseUnitConverter,
+    DistanceConverter,
+    MassConverter,
+    PressureConverter,
+    SpeedConverter,
+    TemperatureConverter,
+    VolumeConverter,
+)
 
 from .const import CONF_STATE_CLASS  # noqa: F401
 
@@ -61,6 +100,7 @@ _LOGGER: Final = logging.getLogger(__name__)
 
 ATTR_LAST_RESET: Final = "last_reset"
 ATTR_STATE_CLASS: Final = "state_class"
+ATTR_OPTIONS: Final = "options"
 
 DOMAIN: Final = "sensor"
 
@@ -72,95 +112,321 @@ SCAN_INTERVAL: Final = timedelta(seconds=30)
 class SensorDeviceClass(StrEnum):
     """Device class for sensors."""
 
-    # apparent power (VA)
-    APPARENT_POWER = "apparent_power"
-
-    # Air Quality Index
-    AQI = "aqi"
-
-    # % of battery that is left
-    BATTERY = "battery"
-
-    # ppm (parts per million) Carbon Monoxide gas concentration
-    CO = "carbon_monoxide"
-
-    # ppm (parts per million) Carbon Dioxide gas concentration
-    CO2 = "carbon_dioxide"
-
-    # current (A)
-    CURRENT = "current"
-
-    # date (ISO8601)
+    # Non-numerical device classes
     DATE = "date"
+    """Date.
 
-    # energy (Wh, kWh, MWh)
-    ENERGY = "energy"
+    Unit of measurement: `None`
 
-    # frequency (Hz, kHz, MHz, GHz)
-    FREQUENCY = "frequency"
+    ISO8601 format: https://en.wikipedia.org/wiki/ISO_8601
+    """
 
-    # gas (m³ or ft³)
-    GAS = "gas"
+    DURATION = "duration"
+    """Fixed duration.
 
-    # % of humidity in the air
-    HUMIDITY = "humidity"
+    Unit of measurement: `d`, `h`, `min`, `s`
+    """
 
-    # current light level (lx/lm)
-    ILLUMINANCE = "illuminance"
+    ENUM = "enum"
+    """Enumeration.
 
-    # Amount of money (currency)
-    MONETARY = "monetary"
+    Provides a fixed list of options the state of the sensor can be in.
 
-    # Amount of NO2 (µg/m³)
-    NITROGEN_DIOXIDE = "nitrogen_dioxide"
+    Unit of measurement: `None`
+    """
 
-    # Amount of NO (µg/m³)
-    NITROGEN_MONOXIDE = "nitrogen_monoxide"
-
-    # Amount of N2O  (µg/m³)
-    NITROUS_OXIDE = "nitrous_oxide"
-
-    # Amount of O3 (µg/m³)
-    OZONE = "ozone"
-
-    # Particulate matter <= 0.1 μm (µg/m³)
-    PM1 = "pm1"
-
-    # Particulate matter <= 10 μm (µg/m³)
-    PM10 = "pm10"
-
-    # Particulate matter <= 2.5 μm (µg/m³)
-    PM25 = "pm25"
-
-    # power factor (%)
-    POWER_FACTOR = "power_factor"
-
-    # power (W/kW)
-    POWER = "power"
-
-    # pressure (hPa/mbar)
-    PRESSURE = "pressure"
-
-    # reactive power (var)
-    REACTIVE_POWER = "reactive_power"
-
-    # signal strength (dB/dBm)
-    SIGNAL_STRENGTH = "signal_strength"
-
-    # Amount of SO2 (µg/m³)
-    SULPHUR_DIOXIDE = "sulphur_dioxide"
-
-    # temperature (C/F)
-    TEMPERATURE = "temperature"
-
-    # timestamp (ISO8601)
     TIMESTAMP = "timestamp"
+    """Timestamp.
 
-    # Amount of VOC (µg/m³)
+    Unit of measurement: `None`
+
+    ISO8601 format: https://en.wikipedia.org/wiki/ISO_8601
+    """
+
+    # Numerical device classes, these should be aligned with NumberDeviceClass
+    APPARENT_POWER = "apparent_power"
+    """Apparent power.
+
+    Unit of measurement: `VA`
+    """
+
+    AQI = "aqi"
+    """Air Quality Index.
+
+    Unit of measurement: `None`
+    """
+
+    ATMOSPHERIC_PRESSURE = "atmospheric_pressure"
+    """Atmospheric pressure.
+
+    Unit of measurement: `UnitOfPressure` units
+    """
+
+    BATTERY = "battery"
+    """Percentage of battery that is left.
+
+    Unit of measurement: `%`
+    """
+
+    CO = "carbon_monoxide"
+    """Carbon Monoxide gas concentration.
+
+    Unit of measurement: `ppm` (parts per million)
+    """
+
+    CO2 = "carbon_dioxide"
+    """Carbon Dioxide gas concentration.
+
+    Unit of measurement: `ppm` (parts per million)
+    """
+
+    CURRENT = "current"
+    """Current.
+
+    Unit of measurement: `A`
+    """
+
+    DATA_RATE = "data_rate"
+    """Data rate.
+
+    Unit of measurement: UnitOfDataRate
+    """
+
+    DATA_SIZE = "data_size"
+    """Data size.
+
+    Unit of measurement: UnitOfInformation
+    """
+
+    DISTANCE = "distance"
+    """Generic distance.
+
+    Unit of measurement: `LENGTH_*` units
+    - SI /metric: `mm`, `cm`, `m`, `km`
+    - USCS / imperial: `in`, `ft`, `yd`, `mi`
+    """
+
+    ENERGY = "energy"
+    """Energy.
+
+    Unit of measurement: `Wh`, `kWh`, `MWh`, `GJ`
+    """
+
+    FREQUENCY = "frequency"
+    """Frequency.
+
+    Unit of measurement: `Hz`, `kHz`, `MHz`, `GHz`
+    """
+
+    GAS = "gas"
+    """Gas.
+
+    Unit of measurement:
+    - SI / metric: `m³`
+    - USCS / imperial: `ft³`, `CCF`
+    """
+
+    HUMIDITY = "humidity"
+    """Relative humidity.
+
+    Unit of measurement: `%`
+    """
+
+    ILLUMINANCE = "illuminance"
+    """Illuminance.
+
+    Unit of measurement: `lx`, `lm`
+    """
+
+    IRRADIANCE = "irradiance"
+    """Irradiance.
+
+    Unit of measurement:
+    - SI / metric: `W/m²`
+    - USCS / imperial: `BTU/(h⋅ft²)`
+    """
+
+    MOISTURE = "moisture"
+    """Moisture.
+
+    Unit of measurement: `%`
+    """
+
+    MONETARY = "monetary"
+    """Amount of money.
+
+    Unit of measurement: ISO4217 currency code
+
+    See https://en.wikipedia.org/wiki/ISO_4217#Active_codes for active codes
+    """
+
+    NITROGEN_DIOXIDE = "nitrogen_dioxide"
+    """Amount of NO2.
+
+    Unit of measurement: `µg/m³`
+    """
+
+    NITROGEN_MONOXIDE = "nitrogen_monoxide"
+    """Amount of NO.
+
+    Unit of measurement: `µg/m³`
+    """
+
+    NITROUS_OXIDE = "nitrous_oxide"
+    """Amount of N2O.
+
+    Unit of measurement: `µg/m³`
+    """
+
+    OZONE = "ozone"
+    """Amount of O3.
+
+    Unit of measurement: `µg/m³`
+    """
+
+    PM1 = "pm1"
+    """Particulate matter <= 0.1 μm.
+
+    Unit of measurement: `µg/m³`
+    """
+
+    PM10 = "pm10"
+    """Particulate matter <= 10 μm.
+
+    Unit of measurement: `µg/m³`
+    """
+
+    PM25 = "pm25"
+    """Particulate matter <= 2.5 μm.
+
+    Unit of measurement: `µg/m³`
+    """
+
+    POWER_FACTOR = "power_factor"
+    """Power factor.
+
+    Unit of measurement: `%`
+    """
+
+    POWER = "power"
+    """Power.
+
+    Unit of measurement: `W`, `kW`
+    """
+
+    PRECIPITATION = "precipitation"
+    """Precipitation.
+
+    Unit of measurement: UnitOfPrecipitationDepth
+    - SI / metric: `cm`, `mm`
+    - USCS / imperial: `in`
+    """
+
+    PRECIPITATION_INTENSITY = "precipitation_intensity"
+    """Precipitation intensity.
+
+    Unit of measurement: UnitOfVolumetricFlux
+    - SI /metric: `mm/d`, `mm/h`
+    - USCS / imperial: `in/d`, `in/h`
+    """
+
+    PRESSURE = "pressure"
+    """Pressure.
+
+    Unit of measurement:
+    - `mbar`, `cbar`, `bar`
+    - `Pa`, `hPa`, `kPa`
+    - `inHg`
+    - `psi`
+    """
+
+    REACTIVE_POWER = "reactive_power"
+    """Reactive power.
+
+    Unit of measurement: `var`
+    """
+
+    SIGNAL_STRENGTH = "signal_strength"
+    """Signal strength.
+
+    Unit of measurement: `dB`, `dBm`
+    """
+
+    SOUND_PRESSURE = "sound_pressure"
+    """Sound pressure.
+
+    Unit of measurement: `dB`, `dBA`
+    """
+
+    SPEED = "speed"
+    """Generic speed.
+
+    Unit of measurement: `SPEED_*` units or `UnitOfVolumetricFlux`
+    - SI /metric: `mm/d`, `mm/h`, `m/s`, `km/h`
+    - USCS / imperial: `in/d`, `in/h`, `ft/s`, `mph`
+    - Nautical: `kn`
+    """
+
+    SULPHUR_DIOXIDE = "sulphur_dioxide"
+    """Amount of SO2.
+
+    Unit of measurement: `µg/m³`
+    """
+
+    TEMPERATURE = "temperature"
+    """Temperature.
+
+    Unit of measurement: `°C`, `°F`
+    """
+
     VOLATILE_ORGANIC_COMPOUNDS = "volatile_organic_compounds"
+    """Amount of VOC.
 
-    # voltage (V)
+    Unit of measurement: `µg/m³`
+    """
+
     VOLTAGE = "voltage"
+    """Voltage.
+
+    Unit of measurement: `V`
+    """
+
+    VOLUME = "volume"
+    """Generic volume.
+
+    Unit of measurement: `VOLUME_*` units
+    - SI / metric: `mL`, `L`, `m³`
+    - USCS / imperial: `ft³`, `CCF`, `fl. oz.`, `gal` (warning: volumes expressed in
+    USCS/imperial units are currently assumed to be US volumes)
+    """
+
+    WATER = "water"
+    """Water.
+
+    Unit of measurement:
+    - SI / metric: `m³`, `L`
+    - USCS / imperial: `ft³`, `CCF`, `gal` (warning: volumes expressed in
+    USCS/imperial units are currently assumed to be US volumes)
+    """
+
+    WEIGHT = "weight"
+    """Generic weight, represents a measurement of an object's mass.
+
+    Weight is used instead of mass to fit with every day language.
+
+    Unit of measurement: `MASS_*` units
+    - SI / metric: `µg`, `mg`, `g`, `kg`
+    - USCS / imperial: `oz`, `lb`
+    """
+
+    WIND_SPEED = "wind_speed"
+    """Wind speed.
+
+    Unit of measurement: `SPEED_*` units
+    - SI /metric: `m/s`, `km/h`
+    - USCS / imperial: `ft/s`, `mph`
+    - Nautical: `kn`
+    """
 
 
 DEVICE_CLASSES_SCHEMA: Final = vol.All(vol.Lower, vol.Coerce(SensorDeviceClass))
@@ -173,14 +439,18 @@ DEVICE_CLASSES: Final[list[str]] = [cls.value for cls in SensorDeviceClass]
 class SensorStateClass(StrEnum):
     """State class for sensors."""
 
-    # The state represents a measurement in present time
     MEASUREMENT = "measurement"
+    """The state represents a measurement in present time."""
 
-    # The state represents a total amount, e.g. net energy consumption
     TOTAL = "total"
+    """The state represents a total amount.
 
-    # The state represents a monotonically increasing total, e.g. an amount of consumed gas
+    For example: net energy consumption"""
+
     TOTAL_INCREASING = "total_increasing"
+    """The state represents a monotonically increasing total.
+
+    For example: an amount of consumed gas"""
 
 
 STATE_CLASSES_SCHEMA: Final = vol.All(vol.Lower, vol.Coerce(SensorStateClass))
@@ -193,10 +463,95 @@ STATE_CLASS_TOTAL: Final = "total"
 STATE_CLASS_TOTAL_INCREASING: Final = "total_increasing"
 STATE_CLASSES: Final[list[str]] = [cls.value for cls in SensorStateClass]
 
+# Note: this needs to be aligned with frontend: OVERRIDE_SENSOR_UNITS in
+# `entity-registry-settings.ts`
+UNIT_CONVERTERS: dict[SensorDeviceClass | str | None, type[BaseUnitConverter]] = {
+    SensorDeviceClass.DISTANCE: DistanceConverter,
+    SensorDeviceClass.GAS: VolumeConverter,
+    SensorDeviceClass.PRECIPITATION: DistanceConverter,
+    SensorDeviceClass.PRESSURE: PressureConverter,
+    SensorDeviceClass.SPEED: SpeedConverter,
+    SensorDeviceClass.TEMPERATURE: TemperatureConverter,
+    SensorDeviceClass.VOLUME: VolumeConverter,
+    SensorDeviceClass.WATER: VolumeConverter,
+    SensorDeviceClass.WEIGHT: MassConverter,
+    SensorDeviceClass.WIND_SPEED: SpeedConverter,
+}
+
+DEVICE_CLASS_UNITS: dict[SensorDeviceClass, set[type[StrEnum] | str | None]] = {
+    SensorDeviceClass.APPARENT_POWER: set(UnitOfApparentPower),
+    SensorDeviceClass.AQI: {None},
+    SensorDeviceClass.ATMOSPHERIC_PRESSURE: set(UnitOfPressure),
+    SensorDeviceClass.BATTERY: {PERCENTAGE},
+    SensorDeviceClass.CO: {CONCENTRATION_PARTS_PER_MILLION},
+    SensorDeviceClass.CO2: {CONCENTRATION_PARTS_PER_MILLION},
+    SensorDeviceClass.CURRENT: {UnitOfElectricCurrent.AMPERE},
+    SensorDeviceClass.DATA_RATE: set(UnitOfDataRate),
+    SensorDeviceClass.DATA_SIZE: set(UnitOfInformation),
+    SensorDeviceClass.DISTANCE: set(UnitOfLength),
+    SensorDeviceClass.DURATION: {
+        UnitOfTime.DAYS,
+        UnitOfTime.HOURS,
+        UnitOfTime.MINUTES,
+        UnitOfTime.SECONDS,
+    },
+    SensorDeviceClass.ENERGY: set(UnitOfEnergy),
+    SensorDeviceClass.FREQUENCY: set(UnitOfFrequency),
+    SensorDeviceClass.GAS: {
+        UnitOfVolume.CENTUM_CUBIC_FEET,
+        UnitOfVolume.CUBIC_FEET,
+        UnitOfVolume.CUBIC_METERS,
+    },
+    SensorDeviceClass.HUMIDITY: {PERCENTAGE},
+    SensorDeviceClass.ILLUMINANCE: {LIGHT_LUX, "lm"},
+    SensorDeviceClass.IRRADIANCE: set(UnitOfIrradiance),
+    SensorDeviceClass.MOISTURE: {PERCENTAGE},
+    SensorDeviceClass.NITROGEN_DIOXIDE: {CONCENTRATION_MICROGRAMS_PER_CUBIC_METER},
+    SensorDeviceClass.NITROGEN_MONOXIDE: {CONCENTRATION_MICROGRAMS_PER_CUBIC_METER},
+    SensorDeviceClass.NITROUS_OXIDE: {CONCENTRATION_MICROGRAMS_PER_CUBIC_METER},
+    SensorDeviceClass.OZONE: {CONCENTRATION_MICROGRAMS_PER_CUBIC_METER},
+    SensorDeviceClass.PM1: {CONCENTRATION_MICROGRAMS_PER_CUBIC_METER},
+    SensorDeviceClass.PM10: {CONCENTRATION_MICROGRAMS_PER_CUBIC_METER},
+    SensorDeviceClass.PM25: {CONCENTRATION_MICROGRAMS_PER_CUBIC_METER},
+    SensorDeviceClass.POWER_FACTOR: {PERCENTAGE},
+    SensorDeviceClass.POWER: {UnitOfPower.WATT, UnitOfPower.KILO_WATT},
+    SensorDeviceClass.PRECIPITATION: set(UnitOfPrecipitationDepth),
+    SensorDeviceClass.PRECIPITATION_INTENSITY: set(UnitOfVolumetricFlux),
+    SensorDeviceClass.PRESSURE: set(UnitOfPressure),
+    SensorDeviceClass.REACTIVE_POWER: {POWER_VOLT_AMPERE_REACTIVE},
+    SensorDeviceClass.SIGNAL_STRENGTH: {
+        SIGNAL_STRENGTH_DECIBELS,
+        SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    },
+    SensorDeviceClass.SOUND_PRESSURE: set(UnitOfSoundPressure),
+    SensorDeviceClass.SPEED: set(UnitOfSpeed).union(set(UnitOfVolumetricFlux)),
+    SensorDeviceClass.SULPHUR_DIOXIDE: {CONCENTRATION_MICROGRAMS_PER_CUBIC_METER},
+    SensorDeviceClass.TEMPERATURE: {
+        UnitOfTemperature.CELSIUS,
+        UnitOfTemperature.FAHRENHEIT,
+    },
+    SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS: {
+        CONCENTRATION_MICROGRAMS_PER_CUBIC_METER
+    },
+    SensorDeviceClass.VOLTAGE: {UnitOfElectricPotential.VOLT},
+    SensorDeviceClass.VOLUME: set(UnitOfVolume),
+    SensorDeviceClass.WATER: {
+        UnitOfVolume.CENTUM_CUBIC_FEET,
+        UnitOfVolume.CUBIC_FEET,
+        UnitOfVolume.CUBIC_METERS,
+        UnitOfVolume.GALLONS,
+        UnitOfVolume.LITERS,
+    },
+    SensorDeviceClass.WEIGHT: set(UnitOfMass),
+    SensorDeviceClass.WIND_SPEED: set(UnitOfSpeed),
+}
+
+# mypy: disallow-any-generics
+
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Track states and offer events for sensors."""
-    component = hass.data[DOMAIN] = EntityComponent(
+    component = hass.data[DOMAIN] = EntityComponent[SensorEntity](
         _LOGGER, DOMAIN, hass, SCAN_INTERVAL
     )
 
@@ -206,13 +561,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up a config entry."""
-    component = cast(EntityComponent, hass.data[DOMAIN])
+    component: EntityComponent[SensorEntity] = hass.data[DOMAIN]
     return await component.async_setup_entry(entry)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    component = cast(EntityComponent, hass.data[DOMAIN])
+    component: EntityComponent[SensorEntity] = hass.data[DOMAIN]
     return await component.async_unload_entry(entry)
 
 
@@ -220,60 +575,119 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 class SensorEntityDescription(EntityDescription):
     """A class that describes sensor entities."""
 
-    device_class: SensorDeviceClass | str | None = None
+    device_class: SensorDeviceClass | None = None
+    suggested_unit_of_measurement: str | None = None
     last_reset: datetime | None = None
     native_unit_of_measurement: str | None = None
     state_class: SensorStateClass | str | None = None
+    options: list[str] | None = None
     unit_of_measurement: None = None  # Type override, use native_unit_of_measurement
-
-    def __post_init__(self) -> None:
-        """Post initialisation processing."""
-        if self.unit_of_measurement:
-            caller = inspect.stack()[2]  # type: ignore[unreachable]
-            module = inspect.getmodule(caller[0])
-            if "custom_components" in module.__file__:
-                report_issue = "report it to the custom component author."
-            else:
-                report_issue = (
-                    "create a bug report at "
-                    "https://github.com/home-assistant/core/issues?q=is%3Aopen+is%3Aissue"
-                )
-            _LOGGER.warning(
-                "%s is setting 'unit_of_measurement' on an instance of "
-                "SensorEntityDescription, this is not valid and will be unsupported "
-                "from Home Assistant 2021.11. Please %s",
-                module.__name__,
-                report_issue,
-            )
-            self.native_unit_of_measurement = self.unit_of_measurement
 
 
 class SensorEntity(Entity):
     """Base class for sensor entities."""
 
     entity_description: SensorEntityDescription
-    _attr_device_class: SensorDeviceClass | str | None
+    _attr_device_class: SensorDeviceClass | None
     _attr_last_reset: datetime | None
     _attr_native_unit_of_measurement: str | None
-    _attr_native_value: StateType | date | datetime = None
+    _attr_native_value: StateType | date | datetime | Decimal = None
+    _attr_options: list[str] | None
     _attr_state_class: SensorStateClass | str | None
     _attr_state: None = None  # Subclasses of SensorEntity should not set this
+    _attr_suggested_unit_of_measurement: str | None
     _attr_unit_of_measurement: None = (
         None  # Subclasses of SensorEntity should not set this
     )
+    _invalid_unit_of_measurement_reported = False
     _last_reset_reported = False
-    _temperature_conversion_reported = False
+    _sensor_option_unit_of_measurement: str | None = None
 
-    # Temporary private attribute to track if deprecation has been logged.
-    __datetime_as_string_deprecation_logged = False
+    @callback
+    def add_to_platform_start(
+        self,
+        hass: HomeAssistant,
+        platform: EntityPlatform,
+        parallel_updates: asyncio.Semaphore | None,
+    ) -> None:
+        """Start adding an entity to a platform.
+
+        Allows integrations to remove legacy custom unit conversion which is no longer
+        needed without breaking existing sensors. Only works for sensors which are in
+        the entity registry.
+
+        This can be removed once core integrations have dropped unneeded custom unit
+        conversion.
+        """
+        super().add_to_platform_start(hass, platform, parallel_updates)
+
+        # Bail out if the sensor doesn't have a unique_id or a device class
+        if self.unique_id is None or self.device_class is None:
+            return
+        registry = er.async_get(self.hass)
+        if not (
+            entity_id := registry.async_get_entity_id(
+                platform.domain, platform.platform_name, self.unique_id
+            )
+        ):
+            return
+        registry_entry = registry.async_get(entity_id)
+        assert registry_entry
+
+        # If the sensor has 'unit_of_measurement' in its sensor options, the user has
+        # overridden the unit.
+        # If the sensor has 'sensor.private' in its entity options, it was added after
+        # automatic unit conversion was implemented.
+        registry_unit = registry_entry.unit_of_measurement
+        if (
+            (
+                (sensor_options := registry_entry.options.get(DOMAIN))
+                and CONF_UNIT_OF_MEASUREMENT in sensor_options
+            )
+            or f"{DOMAIN}.private" in registry_entry.options
+            or self.unit_of_measurement == registry_unit
+        ):
+            return
+
+        # Make sure we can convert the units
+        if (
+            (unit_converter := UNIT_CONVERTERS.get(self.device_class)) is None
+            or registry_unit not in unit_converter.VALID_UNITS
+            or self.unit_of_measurement not in unit_converter.VALID_UNITS
+        ):
+            return
+
+        # Set suggested_unit_of_measurement to the old unit to enable automatic
+        # conversion
+        registry.async_update_entity_options(
+            entity_id,
+            f"{DOMAIN}.private",
+            {"suggested_unit_of_measurement": registry_unit},
+        )
+
+    async def async_internal_added_to_hass(self) -> None:
+        """Call when the sensor entity is added to hass."""
+        await super().async_internal_added_to_hass()
+        if not self.registry_entry:
+            return
+        self.async_registry_entry_updated()
 
     @property
-    def device_class(self) -> SensorDeviceClass | str | None:
+    def device_class(self) -> SensorDeviceClass | None:
         """Return the class of this entity."""
         if hasattr(self, "_attr_device_class"):
             return self._attr_device_class
         if hasattr(self, "entity_description"):
             return self.entity_description.device_class
+        return None
+
+    @property
+    def options(self) -> list[str] | None:
+        """Return a set of possible options."""
+        if hasattr(self, "_attr_options"):
+            return self._attr_options
+        if hasattr(self, "entity_description"):
+            return self.entity_description.options
         return None
 
     @property
@@ -300,7 +714,34 @@ class SensorEntity(Entity):
         if state_class := self.state_class:
             return {ATTR_STATE_CLASS: state_class}
 
+        if options := self.options:
+            return {ATTR_OPTIONS: options}
+
         return None
+
+    def get_initial_entity_options(self) -> er.EntityOptionsType | None:
+        """Return initial entity options.
+
+        These will be stored in the entity registry the first time the entity is seen,
+        and then never updated.
+        """
+        # Unit suggested by the integration
+        suggested_unit_of_measurement = self.suggested_unit_of_measurement
+
+        if suggested_unit_of_measurement is None:
+            # Fallback to suggested by the unit conversion rules
+            suggested_unit_of_measurement = self.hass.config.units.get_converted_unit(
+                self.device_class, self.native_unit_of_measurement
+            )
+
+        if suggested_unit_of_measurement is None:
+            return None
+
+        return {
+            f"{DOMAIN}.private": {
+                "suggested_unit_of_measurement": suggested_unit_of_measurement
+            }
+        }
 
     @final
     @property
@@ -332,7 +773,7 @@ class SensorEntity(Entity):
         return None
 
     @property
-    def native_value(self) -> StateType | date | datetime:
+    def native_value(self) -> StateType | date | datetime | Decimal:
         """Return the value reported by the sensor."""
         return self._attr_native_value
 
@@ -345,69 +786,65 @@ class SensorEntity(Entity):
             return self.entity_description.native_unit_of_measurement
         return None
 
+    @property
+    def suggested_unit_of_measurement(self) -> str | None:
+        """Return the unit which should be used for the sensor's state.
+
+        This can be used by integrations to override automatic unit conversion rules,
+        for example to make a temperature sensor display in °C even if the configured
+        unit system prefers °F.
+
+        For sensors without a `unique_id`, this takes precedence over legacy
+        temperature conversion rules only.
+
+        For sensors with a `unique_id`, this is applied only if the unit is not set by the user,
+        and takes precedence over automatic device-class conversion rules.
+
+        Note:
+            suggested_unit_of_measurement is stored in the entity registry the first time
+            the entity is seen, and then never updated.
+        """
+        if hasattr(self, "_attr_suggested_unit_of_measurement"):
+            return self._attr_suggested_unit_of_measurement
+        if hasattr(self, "entity_description"):
+            return self.entity_description.suggested_unit_of_measurement
+        return None
+
     @final
     @property
     def unit_of_measurement(self) -> str | None:
         """Return the unit of measurement of the entity, after unit conversion."""
-        # Support for _attr_unit_of_measurement will be removed in Home Assistant 2021.11
-        if (
-            hasattr(self, "_attr_unit_of_measurement")
-            and self._attr_unit_of_measurement is not None
-        ):
-            return self._attr_unit_of_measurement  # type: ignore
+        # Highest priority, for registered entities: unit set by user, with fallback to unit suggested
+        # by integration or secondary fallback to unit conversion rules
+        if self._sensor_option_unit_of_measurement:
+            return self._sensor_option_unit_of_measurement
 
+        # Second priority, for non registered entities: unit suggested by integration
+        if not self.registry_entry and self.suggested_unit_of_measurement:
+            return self.suggested_unit_of_measurement
+
+        # Third priority: Legacy temperature conversion, which applies
+        # to both registered and non registered entities
         native_unit_of_measurement = self.native_unit_of_measurement
 
-        if native_unit_of_measurement in (TEMP_CELSIUS, TEMP_FAHRENHEIT):
+        if (
+            self.device_class == DEVICE_CLASS_TEMPERATURE
+            and native_unit_of_measurement
+            in {UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT}
+        ):
             return self.hass.config.units.temperature_unit
 
+        # Fourth priority: Native unit
         return native_unit_of_measurement
 
     @final
     @property
     def state(self) -> Any:
         """Return the state of the sensor and perform unit conversions, if needed."""
-        unit_of_measurement = self.native_unit_of_measurement
+        native_unit_of_measurement = self.native_unit_of_measurement
+        unit_of_measurement = self.unit_of_measurement
         value = self.native_value
         device_class = self.device_class
-
-        # We have an old non-datetime value, warn about it and convert it during
-        # the deprecation period.
-        if (
-            value is not None
-            and device_class in (DEVICE_CLASS_DATE, DEVICE_CLASS_TIMESTAMP)
-            and not isinstance(value, (date, datetime))
-        ):
-            # Deprecation warning for date/timestamp device classes
-            if not self.__datetime_as_string_deprecation_logged:
-                report_issue = self._suggest_report_issue()
-                _LOGGER.warning(
-                    "%s is providing a string for its state, while the device "
-                    "class is '%s', this is not valid and will be unsupported "
-                    "from Home Assistant 2022.2. Please %s",
-                    self.entity_id,
-                    device_class,
-                    report_issue,
-                )
-                self.__datetime_as_string_deprecation_logged = True
-
-            # Anyways, lets validate the date at least..
-            try:
-                value = ciso8601.parse_datetime(str(value))
-            except (ValueError, IndexError) as error:
-                raise ValueError(
-                    f"Invalid date/datetime: {self.entity_id} provide state '{value}', "
-                    f"while it has device class '{device_class}'"
-                ) from error
-
-            if value.tzinfo is not None and value.tzinfo != timezone.utc:
-                value = value.astimezone(timezone.utc)
-
-            # Convert the date object to a standardized state string.
-            if device_class == DEVICE_CLASS_DATE:
-                return value.date().isoformat()
-
-            return value.isoformat(timespec="seconds")
 
         # Received a datetime
         if value is not None and device_class == DEVICE_CLASS_TIMESTAMP:
@@ -425,54 +862,122 @@ class SensorEntity(Entity):
                     value = value.astimezone(timezone.utc)
 
                 return value.isoformat(timespec="seconds")
-            except (AttributeError, TypeError) as err:
+            except (AttributeError, OverflowError, TypeError) as err:
                 raise ValueError(
-                    f"Invalid datetime: {self.entity_id} has a timestamp device class"
-                    f"but does not provide a datetime state but {type(value)}"
+                    f"Invalid datetime: {self.entity_id} has timestamp device class "
+                    f"but provides state {value}:{type(value)} resulting in '{err}'"
                 ) from err
 
         # Received a date value
         if value is not None and device_class == DEVICE_CLASS_DATE:
             try:
-                return value.isoformat()  # type: ignore
+                # We cast the value, to avoid using isinstance, but satisfy
+                # typechecking. The errors are guarded in this try.
+                value = cast(date, value)
+                return value.isoformat()
             except (AttributeError, TypeError) as err:
                 raise ValueError(
-                    f"Invalid date: {self.entity_id} has a date device class"
-                    f"but does not provide a date state but {type(value)}"
+                    f"Invalid date: {self.entity_id} has date device class "
+                    f"but provides state {value}:{type(value)} resulting in '{err}'"
                 ) from err
 
-        units = self.hass.config.units
+        # Sensors with device classes indicating a non-numeric value
+        # should not have a state class or unit of measurement
+        if device_class in {
+            SensorDeviceClass.DATE,
+            SensorDeviceClass.ENUM,
+            SensorDeviceClass.TIMESTAMP,
+        }:
+            if self.state_class:
+                raise ValueError(
+                    f"Sensor {self.entity_id} has a state class and thus indicating "
+                    "it has a numeric value; however, it has the non-numeric "
+                    f"device class: {device_class}"
+                )
+
+            if unit_of_measurement:
+                raise ValueError(
+                    f"Sensor {self.entity_id} has a unit of measurement and thus "
+                    "indicating it has a numeric value; however, it has the "
+                    f"non-numeric device class: {device_class}"
+                )
+
+        # Enum checks
+        if value is not None and (
+            device_class == SensorDeviceClass.ENUM or self.options is not None
+        ):
+            if device_class != SensorDeviceClass.ENUM:
+                reason = "is missing the enum device class"
+                if device_class is not None:
+                    reason = f"has device class '{device_class}' instead of 'enum'"
+                raise ValueError(
+                    f"Sensor {self.entity_id} is providing enum options, but {reason}"
+                )
+
+            if (options := self.options) and value not in options:
+                raise ValueError(
+                    f"Sensor {self.entity_id} provides state value '{value}', "
+                    "which is not in the list of options provided"
+                )
+
         if (
             value is not None
-            and unit_of_measurement in (TEMP_CELSIUS, TEMP_FAHRENHEIT)
-            and unit_of_measurement != units.temperature_unit
+            and native_unit_of_measurement != unit_of_measurement
+            and device_class in UNIT_CONVERTERS
         ):
-            if (
-                self.device_class != DEVICE_CLASS_TEMPERATURE
-                and not self._temperature_conversion_reported
-            ):
-                self._temperature_conversion_reported = True
-                report_issue = self._suggest_report_issue()
-                _LOGGER.warning(
-                    "Entity %s (%s) with device_class %s reports a temperature in "
-                    "%s which will be converted to %s. Temperature conversion for "
-                    "entities without correct device_class is deprecated and will"
-                    " be removed from Home Assistant Core 2022.3. Please update "
-                    "your configuration if device_class is manually configured, "
-                    "otherwise %s",
-                    self.entity_id,
-                    type(self),
-                    self.device_class,
-                    unit_of_measurement,
-                    units.temperature_unit,
-                    report_issue,
-                )
+            assert unit_of_measurement
+            assert native_unit_of_measurement
+            converter = UNIT_CONVERTERS[device_class]
+
             value_s = str(value)
             prec = len(value_s) - value_s.index(".") - 1 if "." in value_s else 0
+
+            # Scale the precision when converting to a larger unit
+            # For example 1.1 Wh should be rendered as 0.0011 kWh, not 0.0 kWh
+            ratio_log = max(
+                0,
+                log10(
+                    converter.get_unit_ratio(
+                        native_unit_of_measurement, unit_of_measurement
+                    )
+                ),
+            )
+            prec = prec + floor(ratio_log)
+
             # Suppress ValueError (Could not convert sensor_value to float)
             with suppress(ValueError):
-                temp = units.temperature(float(value), unit_of_measurement)  # type: ignore
-                value = round(temp) if prec == 0 else round(temp, prec)
+                value_f = float(value)  # type: ignore[arg-type]
+                value_f_new = converter.convert(
+                    value_f,
+                    native_unit_of_measurement,
+                    unit_of_measurement,
+                )
+
+                # Round to the wanted precision
+                value = round(value_f_new) if prec == 0 else round(value_f_new, prec)
+
+        # Validate unit of measurement used for sensors with a device class
+        if (
+            not self._invalid_unit_of_measurement_reported
+            and device_class
+            and (units := DEVICE_CLASS_UNITS.get(device_class)) is not None
+            and native_unit_of_measurement not in units
+        ):
+            self._invalid_unit_of_measurement_reported = True
+            report_issue = self._suggest_report_issue()
+
+            # This should raise in Home Assistant Core 2023.6
+            _LOGGER.warning(
+                "Entity %s (%s) is using native unit of measurement '%s' which "
+                "is not a valid unit for the device class ('%s') it is using; "
+                "Please update your configuration if your entity is manually "
+                "configured, otherwise %s",
+                self.entity_id,
+                type(self),
+                native_unit_of_measurement,
+                device_class,
+                report_issue,
+            )
 
         return value
 
@@ -486,3 +991,99 @@ class SensorEntity(Entity):
             return f"<Entity {self.name}>"
 
         return super().__repr__()
+
+    def _custom_unit_or_none(self, primary_key: str, secondary_key: str) -> str | None:
+        """Return a custom unit, or None if it's not compatible with the native unit."""
+        assert self.registry_entry
+        if (
+            (sensor_options := self.registry_entry.options.get(primary_key))
+            and (custom_unit := sensor_options.get(secondary_key))
+            and (device_class := self.device_class) in UNIT_CONVERTERS
+            and self.native_unit_of_measurement
+            in UNIT_CONVERTERS[device_class].VALID_UNITS
+            and custom_unit in UNIT_CONVERTERS[device_class].VALID_UNITS
+        ):
+            return cast(str, custom_unit)
+        return None
+
+    @callback
+    def async_registry_entry_updated(self) -> None:
+        """Run when the entity registry entry has been updated."""
+        self._sensor_option_unit_of_measurement = self._custom_unit_or_none(
+            DOMAIN, CONF_UNIT_OF_MEASUREMENT
+        )
+        if not self._sensor_option_unit_of_measurement:
+            self._sensor_option_unit_of_measurement = self._custom_unit_or_none(
+                f"{DOMAIN}.private", "suggested_unit_of_measurement"
+            )
+
+
+@dataclass
+class SensorExtraStoredData(ExtraStoredData):
+    """Object to hold extra stored data."""
+
+    native_value: StateType | date | datetime | Decimal
+    native_unit_of_measurement: str | None
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a dict representation of the sensor data."""
+        native_value: StateType | date | datetime | Decimal | dict[
+            str, str
+        ] = self.native_value
+        if isinstance(native_value, (date, datetime)):
+            native_value = {
+                "__type": str(type(native_value)),
+                "isoformat": native_value.isoformat(),
+            }
+        if isinstance(native_value, Decimal):
+            native_value = {
+                "__type": str(type(native_value)),
+                "decimal_str": str(native_value),
+            }
+        return {
+            "native_value": native_value,
+            "native_unit_of_measurement": self.native_unit_of_measurement,
+        }
+
+    @classmethod
+    def from_dict(cls, restored: dict[str, Any]) -> SensorExtraStoredData | None:
+        """Initialize a stored sensor state from a dict."""
+        try:
+            native_value = restored["native_value"]
+            native_unit_of_measurement = restored["native_unit_of_measurement"]
+        except KeyError:
+            return None
+        try:
+            type_ = native_value["__type"]
+            if type_ == "<class 'datetime.datetime'>":
+                native_value = dt_util.parse_datetime(native_value["isoformat"])
+            elif type_ == "<class 'datetime.date'>":
+                native_value = dt_util.parse_date(native_value["isoformat"])
+            elif type_ == "<class 'decimal.Decimal'>":
+                native_value = Decimal(native_value["decimal_str"])
+        except TypeError:
+            # native_value is not a dict
+            pass
+        except KeyError:
+            # native_value is a dict, but does not have all values
+            return None
+        except DecimalInvalidOperation:
+            # native_value couldn't be returned from decimal_str
+            return None
+
+        return cls(native_value, native_unit_of_measurement)
+
+
+class RestoreSensor(SensorEntity, RestoreEntity):
+    """Mixin class for restoring previous sensor state."""
+
+    @property
+    def extra_restore_state_data(self) -> SensorExtraStoredData:
+        """Return sensor specific state data to be restored."""
+        return SensorExtraStoredData(self.native_value, self.native_unit_of_measurement)
+
+    async def async_get_last_sensor_data(self) -> SensorExtraStoredData | None:
+        """Restore native_value and native_unit_of_measurement."""
+        if (restored_last_extra_data := await self.async_get_last_extra_data()) is None:
+            return None
+        return SensorExtraStoredData.from_dict(restored_last_extra_data.as_dict())

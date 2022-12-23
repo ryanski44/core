@@ -80,7 +80,7 @@ async def async_setup(hass: HomeAssistant, hass_config: ConfigType) -> bool:
         except UnidentifiedImageError as ex:
             _LOGGER.error(
                 "Bad image from %s '%s' provided, are you sure it's an image? %s",
-                image_type,
+                image_type,  # pylint: disable=used-before-assignment
                 image_reference,
                 ex,
             )
@@ -104,7 +104,10 @@ async def async_setup(hass: HomeAssistant, hass_config: ConfigType) -> bool:
         """Handle call for URL based image."""
         if not hass.config.is_allowed_external_url(url):
             _LOGGER.error(
-                "External URL '%s' is not allowed, please add to 'allowlist_external_urls'",
+                (
+                    "External URL '%s' is not allowed, please add to"
+                    " 'allowlist_external_urls'"
+                ),
                 url,
             )
             return None
@@ -134,7 +137,10 @@ async def async_setup(hass: HomeAssistant, hass_config: ConfigType) -> bool:
         """Handle call for local file based image."""
         if not hass.config.is_allowed_path(file_path):
             _LOGGER.error(
-                "File path '%s' is not allowed, please add to 'allowlist_external_dirs'",
+                (
+                    "File path '%s' is not allowed, please add to"
+                    " 'allowlist_external_dirs'"
+                ),
                 file_path,
             )
             return None

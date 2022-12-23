@@ -1,6 +1,8 @@
 {
     "config": {
         "abort": {
+            "server_failure": "El servidor RTSPtoWebRTC ha retornat un error. Consulta els registres per a m\u00e9s informaci\u00f3.",
+            "server_unreachable": "No s'ha pogut comunicar amb el servidor RTSPtoWebRTC. Consulta els registres per a m\u00e9s informaci\u00f3.",
             "single_instance_allowed": "Ja configurat. Nom\u00e9s \u00e9s possible una sola configuraci\u00f3."
         },
         "error": {
@@ -19,6 +21,15 @@
                 },
                 "description": "La integraci\u00f3 RTSPtoWebRTC necessita un servidor per traduir els fluxos RTSP a WebRTC. Introdueix l'URL del servidor RTSPtoWebRTC.",
                 "title": "Configuraci\u00f3 de RTSPtoWebRTC"
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "data": {
+                    "stun_server": "Adre\u00e7a del servidor stun (host:port)"
+                }
             }
         }
     }

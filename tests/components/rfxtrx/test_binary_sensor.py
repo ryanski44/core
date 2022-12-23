@@ -6,8 +6,9 @@ from homeassistant.components.rfxtrx.const import ATTR_EVENT
 from homeassistant.const import STATE_UNKNOWN
 from homeassistant.core import State
 
+from .conftest import create_rfx_test_cfg
+
 from tests.common import MockConfigEntry, mock_restore_cache
-from tests.components.rfxtrx.conftest import create_rfx_test_cfg
 
 EVENT_SMOKE_DETECTOR_PANIC = "08200300a109000670"
 EVENT_SMOKE_DETECTOR_NO_PANIC = "08200300a109000770"
@@ -38,7 +39,7 @@ async def test_one(hass, rfxtrx):
 
 
 async def test_one_pt2262(hass, rfxtrx):
-    """Test with 1 sensor."""
+    """Test with 1 PT2262 sensor."""
     entry_data = create_rfx_test_cfg(
         devices={
             "0913000022670e013970": {

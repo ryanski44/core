@@ -16,7 +16,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ENERGY_KILO_WATT_HOUR
+from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
@@ -46,7 +46,7 @@ SENSOR_TYPES_ELECTRICITY: tuple[OVOEnergySensorEntityDescription, ...] = (
         name="OVO Last Electricity Reading",
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
-        native_unit_of_measurement=ENERGY_KILO_WATT_HOUR,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         value=lambda usage: usage.electricity[-1].consumption,
     ),
     OVOEnergySensorEntityDescription(
@@ -54,7 +54,9 @@ SENSOR_TYPES_ELECTRICITY: tuple[OVOEnergySensorEntityDescription, ...] = (
         name="OVO Last Electricity Cost",
         device_class=SensorDeviceClass.MONETARY,
         state_class=SensorStateClass.TOTAL_INCREASING,
-        value=lambda usage: usage.electricity[-1].cost.amount,
+        value=lambda usage: usage.electricity[-1].cost.amount
+        if usage.electricity[-1].cost is not None
+        else None,
     ),
     OVOEnergySensorEntityDescription(
         key="last_electricity_start_time",
@@ -78,7 +80,7 @@ SENSOR_TYPES_GAS: tuple[OVOEnergySensorEntityDescription, ...] = (
         name="OVO Last Gas Reading",
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
-        native_unit_of_measurement=ENERGY_KILO_WATT_HOUR,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         icon="mdi:gas-cylinder",
         value=lambda usage: usage.gas[-1].consumption,
     ),
@@ -88,7 +90,9 @@ SENSOR_TYPES_GAS: tuple[OVOEnergySensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.MONETARY,
         state_class=SensorStateClass.TOTAL_INCREASING,
         icon="mdi:cash-multiple",
-        value=lambda usage: usage.gas[-1].cost.amount,
+        value=lambda usage: usage.gas[-1].cost.amount
+        if usage.gas[-1].cost is not None
+        else None,
     ),
     OVOEnergySensorEntityDescription(
         key="last_gas_start_time",
@@ -121,14 +125,22 @@ async def async_setup_entry(
     if coordinator.data:
         if coordinator.data.electricity:
             for description in SENSOR_TYPES_ELECTRICITY:
-                if description.key == KEY_LAST_ELECTRICITY_COST:
+                if (
+                    description.key == KEY_LAST_ELECTRICITY_COST
+                    and coordinator.data.electricity[-1] is not None
+                    and coordinator.data.electricity[-1].cost is not None
+                ):
                     description.native_unit_of_measurement = (
                         coordinator.data.electricity[-1].cost.currency_unit
                     )
                 entities.append(OVOEnergySensor(coordinator, description, client))
         if coordinator.data.gas:
             for description in SENSOR_TYPES_GAS:
-                if description.key == KEY_LAST_GAS_COST:
+                if (
+                    description.key == KEY_LAST_GAS_COST
+                    and coordinator.data.gas[-1] is not None
+                    and coordinator.data.gas[-1].cost is not None
+                ):
                     description.native_unit_of_measurement = coordinator.data.gas[
                         -1
                     ].cost.currency_unit

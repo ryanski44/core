@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from functools import lru_cache
+from functools import cache
 import logging
 import os
 import socket
@@ -25,14 +25,13 @@ from homeassistant.const import (
     CONF_RESOURCES,
     CONF_SCAN_INTERVAL,
     CONF_TYPE,
-    DATA_GIBIBYTES,
-    DATA_MEBIBYTES,
-    DATA_RATE_MEGABYTES_PER_SECOND,
     EVENT_HOMEASSISTANT_STOP,
     PERCENTAGE,
     STATE_OFF,
     STATE_ON,
-    TEMP_CELSIUS,
+    UnitOfDataRate,
+    UnitOfInformation,
+    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
 import homeassistant.helpers.config_validation as cv
@@ -51,7 +50,7 @@ _LOGGER = logging.getLogger(__name__)
 
 CONF_ARG = "arg"
 
-if sys.maxsize > 2 ** 32:
+if sys.maxsize > 2**32:
     CPU_ICON = "mdi:cpu-64-bit"
 else:
     CPU_ICON = "mdi:cpu-32-bit"
@@ -76,14 +75,16 @@ SENSOR_TYPES: dict[str, SysMonitorSensorEntityDescription] = {
     "disk_free": SysMonitorSensorEntityDescription(
         key="disk_free",
         name="Disk free",
-        native_unit_of_measurement=DATA_GIBIBYTES,
+        native_unit_of_measurement=UnitOfInformation.GIBIBYTES,
+        device_class=SensorDeviceClass.DATA_SIZE,
         icon="mdi:harddisk",
         state_class=SensorStateClass.MEASUREMENT,
     ),
     "disk_use": SysMonitorSensorEntityDescription(
         key="disk_use",
         name="Disk use",
-        native_unit_of_measurement=DATA_GIBIBYTES,
+        native_unit_of_measurement=UnitOfInformation.GIBIBYTES,
+        device_class=SensorDeviceClass.DATA_SIZE,
         icon="mdi:harddisk",
         state_class=SensorStateClass.MEASUREMENT,
     ),
@@ -97,13 +98,13 @@ SENSOR_TYPES: dict[str, SysMonitorSensorEntityDescription] = {
     "ipv4_address": SysMonitorSensorEntityDescription(
         key="ipv4_address",
         name="IPv4 address",
-        icon="mdi:server-network",
+        icon="mdi:ip-network",
         mandatory_arg=True,
     ),
     "ipv6_address": SysMonitorSensorEntityDescription(
         key="ipv6_address",
         name="IPv6 address",
-        icon="mdi:server-network",
+        icon="mdi:ip-network",
         mandatory_arg=True,
     ),
     "last_boot": SysMonitorSensorEntityDescription(
@@ -132,14 +133,16 @@ SENSOR_TYPES: dict[str, SysMonitorSensorEntityDescription] = {
     "memory_free": SysMonitorSensorEntityDescription(
         key="memory_free",
         name="Memory free",
-        native_unit_of_measurement=DATA_MEBIBYTES,
+        native_unit_of_measurement=UnitOfInformation.MEBIBYTES,
+        device_class=SensorDeviceClass.DATA_SIZE,
         icon="mdi:memory",
         state_class=SensorStateClass.MEASUREMENT,
     ),
     "memory_use": SysMonitorSensorEntityDescription(
         key="memory_use",
         name="Memory use",
-        native_unit_of_measurement=DATA_MEBIBYTES,
+        native_unit_of_measurement=UnitOfInformation.MEBIBYTES,
+        device_class=SensorDeviceClass.DATA_SIZE,
         icon="mdi:memory",
         state_class=SensorStateClass.MEASUREMENT,
     ),
@@ -153,7 +156,8 @@ SENSOR_TYPES: dict[str, SysMonitorSensorEntityDescription] = {
     "network_in": SysMonitorSensorEntityDescription(
         key="network_in",
         name="Network in",
-        native_unit_of_measurement=DATA_MEBIBYTES,
+        native_unit_of_measurement=UnitOfInformation.MEBIBYTES,
+        device_class=SensorDeviceClass.DATA_SIZE,
         icon="mdi:server-network",
         state_class=SensorStateClass.TOTAL_INCREASING,
         mandatory_arg=True,
@@ -161,7 +165,8 @@ SENSOR_TYPES: dict[str, SysMonitorSensorEntityDescription] = {
     "network_out": SysMonitorSensorEntityDescription(
         key="network_out",
         name="Network out",
-        native_unit_of_measurement=DATA_MEBIBYTES,
+        native_unit_of_measurement=UnitOfInformation.MEBIBYTES,
+        device_class=SensorDeviceClass.DATA_SIZE,
         icon="mdi:server-network",
         state_class=SensorStateClass.TOTAL_INCREASING,
         mandatory_arg=True,
@@ -183,16 +188,16 @@ SENSOR_TYPES: dict[str, SysMonitorSensorEntityDescription] = {
     "throughput_network_in": SysMonitorSensorEntityDescription(
         key="throughput_network_in",
         name="Network throughput in",
-        native_unit_of_measurement=DATA_RATE_MEGABYTES_PER_SECOND,
-        icon="mdi:server-network",
+        native_unit_of_measurement=UnitOfDataRate.MEGABYTES_PER_SECOND,
+        device_class=SensorDeviceClass.DATA_RATE,
         state_class=SensorStateClass.MEASUREMENT,
         mandatory_arg=True,
     ),
     "throughput_network_out": SysMonitorSensorEntityDescription(
         key="throughput_network_out",
         name="Network throughput out",
-        native_unit_of_measurement=DATA_RATE_MEGABYTES_PER_SECOND,
-        icon="mdi:server-network",
+        native_unit_of_measurement=UnitOfDataRate.MEGABYTES_PER_SECOND,
+        device_class=SensorDeviceClass.DATA_RATE,
         state_class=SensorStateClass.MEASUREMENT,
         mandatory_arg=True,
     ),
@@ -213,21 +218,23 @@ SENSOR_TYPES: dict[str, SysMonitorSensorEntityDescription] = {
     "processor_temperature": SysMonitorSensorEntityDescription(
         key="processor_temperature",
         name="Processor temperature",
-        native_unit_of_measurement=TEMP_CELSIUS,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     "swap_free": SysMonitorSensorEntityDescription(
         key="swap_free",
         name="Swap free",
-        native_unit_of_measurement=DATA_MEBIBYTES,
+        native_unit_of_measurement=UnitOfInformation.MEBIBYTES,
+        device_class=SensorDeviceClass.DATA_SIZE,
         icon="mdi:harddisk",
         state_class=SensorStateClass.MEASUREMENT,
     ),
     "swap_use": SysMonitorSensorEntityDescription(
         key="swap_use",
         name="Swap use",
-        native_unit_of_measurement=DATA_MEBIBYTES,
+        native_unit_of_measurement=UnitOfInformation.MEBIBYTES,
+        device_class=SensorDeviceClass.DATA_SIZE,
         icon="mdi:harddisk",
         state_class=SensorStateClass.MEASUREMENT,
     ),
@@ -306,6 +313,7 @@ CPU_SENSOR_PREFIXES = [
     "Tctl",
     "cpu0-thermal",
     "cpu0_thermal",
+    "k10temp 1",
 ]
 
 
@@ -473,22 +481,22 @@ def _update(  # noqa: C901
     if type_ == "disk_use_percent":
         state = _disk_usage(data.argument).percent
     elif type_ == "disk_use":
-        state = round(_disk_usage(data.argument).used / 1024 ** 3, 1)
+        state = round(_disk_usage(data.argument).used / 1024**3, 1)
     elif type_ == "disk_free":
-        state = round(_disk_usage(data.argument).free / 1024 ** 3, 1)
+        state = round(_disk_usage(data.argument).free / 1024**3, 1)
     elif type_ == "memory_use_percent":
         state = _virtual_memory().percent
     elif type_ == "memory_use":
         virtual_memory = _virtual_memory()
-        state = round((virtual_memory.total - virtual_memory.available) / 1024 ** 2, 1)
+        state = round((virtual_memory.total - virtual_memory.available) / 1024**2, 1)
     elif type_ == "memory_free":
-        state = round(_virtual_memory().available / 1024 ** 2, 1)
+        state = round(_virtual_memory().available / 1024**2, 1)
     elif type_ == "swap_use_percent":
         state = _swap_memory().percent
     elif type_ == "swap_use":
-        state = round(_swap_memory().used / 1024 ** 2, 1)
+        state = round(_swap_memory().used / 1024**2, 1)
     elif type_ == "swap_free":
-        state = round(_swap_memory().free / 1024 ** 2, 1)
+        state = round(_swap_memory().free / 1024**2, 1)
     elif type_ == "processor_use":
         state = round(psutil.cpu_percent(interval=None))
     elif type_ == "processor_temperature":
@@ -510,7 +518,7 @@ def _update(  # noqa: C901
         counters = _net_io_counters()
         if data.argument in counters:
             counter = counters[data.argument][IO_COUNTER[type_]]
-            state = round(counter / 1024 ** 2, 1)
+            state = round(counter / 1024**2, 1)
         else:
             state = None
     elif type_ in ("packets_out", "packets_in"):
@@ -527,7 +535,7 @@ def _update(  # noqa: C901
             if data.value and data.value < counter:
                 state = round(
                     (counter - data.value)
-                    / 1000 ** 2
+                    / 1000**2
                     / (now - (data.update_time or now)).total_seconds(),
                     3,
                 )
@@ -561,34 +569,32 @@ def _update(  # noqa: C901
     return state, value, update_time
 
 
-# When we drop python 3.8 support these can be switched to
-# @cache https://docs.python.org/3.9/library/functools.html#functools.cache
-@lru_cache(maxsize=None)
+@cache
 def _disk_usage(path: str) -> Any:
     return psutil.disk_usage(path)
 
 
-@lru_cache(maxsize=None)
+@cache
 def _swap_memory() -> Any:
     return psutil.swap_memory()
 
 
-@lru_cache(maxsize=None)
+@cache
 def _virtual_memory() -> Any:
     return psutil.virtual_memory()
 
 
-@lru_cache(maxsize=None)
+@cache
 def _net_io_counters() -> Any:
     return psutil.net_io_counters(pernic=True)
 
 
-@lru_cache(maxsize=None)
+@cache
 def _net_if_addrs() -> Any:
     return psutil.net_if_addrs()
 
 
-@lru_cache(maxsize=None)
+@cache
 def _getloadavg() -> tuple[float, float, float]:
     return os.getloadavg()
 

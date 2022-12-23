@@ -26,10 +26,11 @@ def addon_info_side_effect_fixture():
 def mock_addon_info(addon_info_side_effect):
     """Mock Supervisor add-on info."""
     with patch(
-        "homeassistant.components.zwave_js.addon.async_get_addon_info",
+        "homeassistant.components.hassio.addon_manager.async_get_addon_info",
         side_effect=addon_info_side_effect,
     ) as addon_info:
         addon_info.return_value = {
+            "hostname": None,
             "options": {},
             "state": None,
             "update_available": False,
@@ -38,18 +39,56 @@ def mock_addon_info(addon_info_side_effect):
         yield addon_info
 
 
+@pytest.fixture(name="addon_store_info_side_effect")
+def addon_store_info_side_effect_fixture():
+    """Return the add-on store info side effect."""
+    return None
+
+
+@pytest.fixture(name="addon_store_info")
+def mock_addon_store_info(addon_store_info_side_effect):
+    """Mock Supervisor add-on info."""
+    with patch(
+        "homeassistant.components.hassio.addon_manager.async_get_addon_store_info",
+        side_effect=addon_store_info_side_effect,
+    ) as addon_store_info:
+        addon_store_info.return_value = {
+            "installed": None,
+            "state": None,
+            "version": "1.0.0",
+        }
+        yield addon_store_info
+
+
 @pytest.fixture(name="addon_running")
-def mock_addon_running(addon_info):
+def mock_addon_running(addon_store_info, addon_info):
     """Mock add-on already running."""
+    addon_store_info.return_value = {
+        "installed": "1.0.0",
+        "state": "started",
+        "version": "1.0.0",
+    }
     addon_info.return_value["state"] = "started"
+    addon_info.return_value["version"] = "1.0.0"
     return addon_info
 
 
 @pytest.fixture(name="addon_installed")
-def mock_addon_installed(addon_info):
+def mock_addon_installed(addon_store_info, addon_info):
     """Mock add-on already installed but not running."""
+    addon_store_info.return_value = {
+        "installed": "1.0.0",
+        "state": "stopped",
+        "version": "1.0.0",
+    }
     addon_info.return_value["state"] = "stopped"
-    addon_info.return_value["version"] = "1.0"
+    addon_info.return_value["version"] = "1.0.0"
+    return addon_info
+
+
+@pytest.fixture(name="addon_not_installed")
+def mock_addon_not_installed(addon_store_info, addon_info):
+    """Mock add-on not installed."""
     return addon_info
 
 
@@ -74,20 +113,25 @@ def set_addon_options_side_effect_fixture(addon_options):
 def mock_set_addon_options(set_addon_options_side_effect):
     """Mock set add-on options."""
     with patch(
-        "homeassistant.components.zwave_js.addon.async_set_addon_options",
+        "homeassistant.components.hassio.addon_manager.async_set_addon_options",
         side_effect=set_addon_options_side_effect,
     ) as set_options:
         yield set_options
 
 
 @pytest.fixture(name="install_addon_side_effect")
-def install_addon_side_effect_fixture(addon_info):
+def install_addon_side_effect_fixture(addon_store_info, addon_info):
     """Return the install add-on side effect."""
 
     async def install_addon(hass, slug):
         """Mock install add-on."""
+        addon_store_info.return_value = {
+            "installed": "1.0.0",
+            "state": "stopped",
+            "version": "1.0.0",
+        }
         addon_info.return_value["state"] = "stopped"
-        addon_info.return_value["version"] = "1.0"
+        addon_info.return_value["version"] = "1.0.0"
 
     return install_addon
 
@@ -96,7 +140,7 @@ def install_addon_side_effect_fixture(addon_info):
 def mock_install_addon(install_addon_side_effect):
     """Mock install add-on."""
     with patch(
-        "homeassistant.components.zwave_js.addon.async_install_addon",
+        "homeassistant.components.hassio.addon_manager.async_install_addon",
         side_effect=install_addon_side_effect,
     ) as install_addon:
         yield install_addon
@@ -106,17 +150,22 @@ def mock_install_addon(install_addon_side_effect):
 def mock_update_addon():
     """Mock update add-on."""
     with patch(
-        "homeassistant.components.zwave_js.addon.async_update_addon"
+        "homeassistant.components.hassio.addon_manager.async_update_addon"
     ) as update_addon:
         yield update_addon
 
 
 @pytest.fixture(name="start_addon_side_effect")
-def start_addon_side_effect_fixture(addon_info):
+def start_addon_side_effect_fixture(addon_store_info, addon_info):
     """Return the start add-on options side effect."""
 
     async def start_addon(hass, slug):
         """Mock start add-on."""
+        addon_store_info.return_value = {
+            "installed": "1.0.0",
+            "state": "started",
+            "version": "1.0.0",
+        }
         addon_info.return_value["state"] = "started"
 
     return start_addon
@@ -126,7 +175,7 @@ def start_addon_side_effect_fixture(addon_info):
 def mock_start_addon(start_addon_side_effect):
     """Mock start add-on."""
     with patch(
-        "homeassistant.components.zwave_js.addon.async_start_addon",
+        "homeassistant.components.hassio.addon_manager.async_start_addon",
         side_effect=start_addon_side_effect,
     ) as start_addon:
         yield start_addon
@@ -136,7 +185,7 @@ def mock_start_addon(start_addon_side_effect):
 def stop_addon_fixture():
     """Mock stop add-on."""
     with patch(
-        "homeassistant.components.zwave_js.addon.async_stop_addon"
+        "homeassistant.components.hassio.addon_manager.async_stop_addon"
     ) as stop_addon:
         yield stop_addon
 
@@ -151,7 +200,7 @@ def restart_addon_side_effect_fixture():
 def mock_restart_addon(restart_addon_side_effect):
     """Mock restart add-on."""
     with patch(
-        "homeassistant.components.zwave_js.addon.async_restart_addon",
+        "homeassistant.components.hassio.addon_manager.async_restart_addon",
         side_effect=restart_addon_side_effect,
     ) as restart_addon:
         yield restart_addon
@@ -161,7 +210,7 @@ def mock_restart_addon(restart_addon_side_effect):
 def uninstall_addon_fixture():
     """Mock uninstall add-on."""
     with patch(
-        "homeassistant.components.zwave_js.addon.async_uninstall_addon"
+        "homeassistant.components.hassio.addon_manager.async_uninstall_addon"
     ) as uninstall_addon:
         yield uninstall_addon
 
@@ -170,7 +219,7 @@ def uninstall_addon_fixture():
 def create_backup_fixture():
     """Mock create backup."""
     with patch(
-        "homeassistant.components.zwave_js.addon.async_create_backup"
+        "homeassistant.components.hassio.addon_manager.async_create_backup"
     ) as create_backup:
         yield create_backup
 
@@ -179,6 +228,12 @@ def create_backup_fixture():
 def controller_state_fixture():
     """Load the controller state fixture data."""
     return json.loads(load_fixture("zwave_js/controller_state.json"))
+
+
+@pytest.fixture(name="controller_node_state", scope="session")
+def controller_node_state_fixture():
+    """Load the controller node state fixture data."""
+    return json.loads(load_fixture("zwave_js/controller_node_state.json"))
 
 
 @pytest.fixture(name="version_state", scope="session")
@@ -202,6 +257,18 @@ def log_config_state_fixture():
         "filename": "",
         "forceConsole": False,
     }
+
+
+@pytest.fixture(name="config_entry_diagnostics", scope="session")
+def config_entry_diagnostics_fixture():
+    """Load the config entry diagnostics fixture data."""
+    return json.loads(load_fixture("zwave_js/config_entry_diagnostics.json"))
+
+
+@pytest.fixture(name="config_entry_diagnostics_redacted", scope="session")
+def config_entry_diagnostics_redacted_fixture():
+    """Load the redacted config entry diagnostics fixture data."""
+    return json.loads(load_fixture("zwave_js/config_entry_diagnostics_redacted.json"))
 
 
 @pytest.fixture(name="multisensor_6_state", scope="session")
@@ -276,6 +343,12 @@ def climate_radio_thermostat_ct100_plus_different_endpoints_state_fixture():
     )
 
 
+@pytest.fixture(name="climate_adc_t3000_state", scope="session")
+def climate_adc_t3000_state_fixture():
+    """Load the climate ADC-T3000 node state fixture data."""
+    return json.loads(load_fixture("zwave_js/climate_adc_t3000_state.json"))
+
+
 @pytest.fixture(name="climate_danfoss_lc_13_state", scope="session")
 def climate_danfoss_lc_13_state_fixture():
     """Load the climate Danfoss (LC-13) electronic radiator thermostat node state fixture data."""
@@ -336,6 +409,12 @@ def fan_generic_state_fixture():
 def hs_fc200_state_fixture():
     """Load the HS FC200+ node state fixture data."""
     return json.loads(load_fixture("zwave_js/fan_hs_fc200_state.json"))
+
+
+@pytest.fixture(name="leviton_zw4sf_state", scope="session")
+def leviton_zw4sf_state_fixture():
+    """Load the Leviton ZW4SF node state fixture data."""
+    return json.loads(load_fixture("zwave_js/leviton_zw4sf_state.json"))
 
 
 @pytest.fixture(name="gdc_zw062_state", scope="session")
@@ -491,8 +570,22 @@ def zp3111_state_fixture():
     return json.loads(load_fixture("zwave_js/zp3111-5_state.json"))
 
 
+@pytest.fixture(name="express_controls_ezmultipli_state", scope="session")
+def light_express_controls_ezmultipli_state_fixture():
+    """Load the Express Controls EZMultiPli node state fixture data."""
+    return json.loads(load_fixture("zwave_js/express_controls_ezmultipli_state.json"))
+
+
+@pytest.fixture(name="lock_home_connect_620_state", scope="session")
+def lock_home_connect_620_state_fixture():
+    """Load the Home Connect 620 lock node state fixture data."""
+    return json.loads(load_fixture("zwave_js/lock_home_connect_620_state.json"))
+
+
 @pytest.fixture(name="client")
-def mock_client_fixture(controller_state, version_state, log_config_state):
+def mock_client_fixture(
+    controller_state, controller_node_state, version_state, log_config_state
+):
     """Mock a client."""
 
     with patch(
@@ -506,7 +599,8 @@ def mock_client_fixture(controller_state, version_state, log_config_state):
 
         async def listen(driver_ready: asyncio.Event) -> None:
             driver_ready.set()
-            await asyncio.sleep(30)
+            listen_block = asyncio.Event()
+            await listen_block.wait()
             assert False, "Listen wasn't canceled!"
 
         async def disconnect():
@@ -516,6 +610,8 @@ def mock_client_fixture(controller_state, version_state, log_config_state):
         client.listen = AsyncMock(side_effect=listen)
         client.disconnect = AsyncMock(side_effect=disconnect)
         client.driver = Driver(client, controller_state, log_config_state)
+        node = Node(client, copy.deepcopy(controller_node_state))
+        client.driver.controller.nodes[node.node_id] = node
 
         client.version = VersionInfo.from_message(version_state)
         client.ws_server_url = "ws://test:3000/zjs"
@@ -606,6 +702,62 @@ def climate_radio_thermostat_ct100_plus_different_endpoints_fixture(
         client,
         copy.deepcopy(climate_radio_thermostat_ct100_plus_different_endpoints_state),
     )
+    client.driver.controller.nodes[node.node_id] = node
+    return node
+
+
+@pytest.fixture(name="climate_adc_t3000")
+def climate_adc_t3000_fixture(client, climate_adc_t3000_state):
+    """Mock a climate ADC-T3000 node."""
+    node = Node(client, copy.deepcopy(climate_adc_t3000_state))
+    client.driver.controller.nodes[node.node_id] = node
+    return node
+
+
+@pytest.fixture(name="climate_adc_t3000_missing_setpoint")
+def climate_adc_t3000_missing_setpoint_fixture(client, climate_adc_t3000_state):
+    """Mock a climate ADC-T3000 node with missing de-humidify setpoint."""
+    data = copy.deepcopy(climate_adc_t3000_state)
+    data["name"] = f"{data['name']} missing setpoint"
+    for value in data["values"][:]:
+        if (
+            value["commandClassName"] == "Humidity Control Setpoint"
+            and value["propertyKeyName"] == "De-humidifier"
+        ):
+            data["values"].remove(value)
+    node = Node(client, data)
+    client.driver.controller.nodes[node.node_id] = node
+    return node
+
+
+@pytest.fixture(name="climate_adc_t3000_missing_mode")
+def climate_adc_t3000_missing_mode_fixture(client, climate_adc_t3000_state):
+    """Mock a climate ADC-T3000 node with missing mode setpoint."""
+    data = copy.deepcopy(climate_adc_t3000_state)
+    data["name"] = f"{data['name']} missing mode"
+    for value in data["values"]:
+        if value["commandClassName"] == "Humidity Control Mode":
+            states = value["metadata"]["states"]
+            for key in list(states.keys()):
+                if states[key] == "De-humidify":
+                    del states[key]
+    node = Node(client, data)
+    client.driver.controller.nodes[node.node_id] = node
+    return node
+
+
+@pytest.fixture(name="climate_adc_t3000_missing_fan_mode_states")
+def climate_adc_t3000_missing_fan_mode_states_fixture(client, climate_adc_t3000_state):
+    """Mock a climate ADC-T3000 node with missing 'states' metadata on Thermostat Fan Mode."""
+    data = copy.deepcopy(climate_adc_t3000_state)
+    data["name"] = f"{data['name']} missing fan mode states"
+    for value in data["values"]:
+        if (
+            value["commandClassName"] == "Thermostat Fan Mode"
+            and value["property"] == "mode"
+        ):
+            del value["metadata"]["states"]
+    node = Node(client, data)
     client.driver.controller.nodes[node.node_id] = node
     return node
 
@@ -702,6 +854,8 @@ async def integration_fixture(hass, client):
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
+    client.async_send_command.reset_mock()
+
     return entry
 
 
@@ -729,24 +883,20 @@ def hs_fc200_fixture(client, hs_fc200_state):
     return node
 
 
+@pytest.fixture(name="leviton_zw4sf")
+def leviton_zw4sf_fixture(client, leviton_zw4sf_state):
+    """Mock a fan node."""
+    node = Node(client, copy.deepcopy(leviton_zw4sf_state))
+    client.driver.controller.nodes[node.node_id] = node
+    return node
+
+
 @pytest.fixture(name="null_name_check")
 def null_name_check_fixture(client, null_name_check_state):
     """Mock a node with no name."""
     node = Node(client, copy.deepcopy(null_name_check_state))
     client.driver.controller.nodes[node.node_id] = node
     return node
-
-
-@pytest.fixture(name="multiple_devices")
-def multiple_devices_fixture(
-    client, climate_radio_thermostat_ct100_plus_state, lock_schlage_be469_state
-):
-    """Mock a client with multiple devices."""
-    node = Node(client, copy.deepcopy(climate_radio_thermostat_ct100_plus_state))
-    client.driver.controller.nodes[node.node_id] = node
-    node = Node(client, copy.deepcopy(lock_schlage_be469_state))
-    client.driver.controller.nodes[node.node_id] = node
-    return client.driver.controller.nodes
 
 
 @pytest.fixture(name="gdc_zw062")
@@ -945,5 +1095,21 @@ def zp3111_not_ready_fixture(client, zp3111_not_ready_state):
 def zp3111_fixture(client, zp3111_state):
     """Mock a zp3111 4-in-1 sensor node."""
     node = Node(client, copy.deepcopy(zp3111_state))
+    client.driver.controller.nodes[node.node_id] = node
+    return node
+
+
+@pytest.fixture(name="express_controls_ezmultipli")
+def express_controls_ezmultipli_fixture(client, express_controls_ezmultipli_state):
+    """Mock a Express Controls EZMultiPli node."""
+    node = Node(client, copy.deepcopy(express_controls_ezmultipli_state))
+    client.driver.controller.nodes[node.node_id] = node
+    return node
+
+
+@pytest.fixture(name="lock_home_connect_620")
+def lock_home_connect_620_fixture(client, lock_home_connect_620_state):
+    """Mock a Home Connect 620 lock node."""
+    node = Node(client, copy.deepcopy(lock_home_connect_620_state))
     client.driver.controller.nodes[node.node_id] = node
     return node

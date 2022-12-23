@@ -1,11 +1,15 @@
 """Component to integrate the Home Assistant cloud."""
+from __future__ import annotations
+
 import asyncio
+from collections.abc import Awaitable, Callable
+from datetime import timedelta
+from enum import Enum
 
 from hass_nabucasa import Cloud
 import voluptuous as vol
 
-from homeassistant.components.alexa import const as alexa_const
-from homeassistant.components.google_assistant import const as ga_c
+from homeassistant.components import alexa, google_assistant
 from homeassistant.const import (
     CONF_DESCRIPTION,
     CONF_MODE,
@@ -18,6 +22,13 @@ from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv, entityfilter
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.discovery import async_load_platform
+from homeassistant.helpers.dispatcher import (
+    async_dispatcher_connect,
+    async_dispatcher_send,
+)
+from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import bind_hass
 from homeassistant.util.aiohttp import MockRequest
@@ -25,38 +36,43 @@ from homeassistant.util.aiohttp import MockRequest
 from . import account_link, http_api
 from .client import CloudClient
 from .const import (
-    CONF_ACCOUNT_LINK_URL,
-    CONF_ACME_DIRECTORY_SERVER,
+    CONF_ACCOUNT_LINK_SERVER,
+    CONF_ACCOUNTS_SERVER,
+    CONF_ACME_SERVER,
     CONF_ALEXA,
-    CONF_ALEXA_ACCESS_TOKEN_URL,
+    CONF_ALEXA_SERVER,
     CONF_ALIASES,
-    CONF_CLOUDHOOK_CREATE_URL,
+    CONF_CLOUDHOOK_SERVER,
     CONF_COGNITO_CLIENT_ID,
     CONF_ENTITY_CONFIG,
     CONF_FILTER,
     CONF_GOOGLE_ACTIONS,
-    CONF_GOOGLE_ACTIONS_REPORT_STATE_URL,
-    CONF_RELAYER,
-    CONF_REMOTE_API_URL,
-    CONF_SUBSCRIPTION_INFO_URL,
+    CONF_RELAYER_SERVER,
+    CONF_REMOTE_SNI_SERVER,
+    CONF_REMOTESTATE_SERVER,
+    CONF_THINGTALK_SERVER,
     CONF_USER_POOL_ID,
-    CONF_VOICE_API_URL,
+    CONF_VOICE_SERVER,
     DOMAIN,
     MODE_DEV,
     MODE_PROD,
 )
 from .prefs import CloudPreferences
+from .repairs import async_manage_legacy_subscription_issue
+from .subscription import async_subscription_info
 
 DEFAULT_MODE = MODE_PROD
 
 SERVICE_REMOTE_CONNECT = "remote_connect"
 SERVICE_REMOTE_DISCONNECT = "remote_disconnect"
 
+SIGNAL_CLOUD_CONNECTION_STATE = "CLOUD_CONNECTION_STATE"
+
 
 ALEXA_ENTITY_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_DESCRIPTION): cv.string,
-        vol.Optional(alexa_const.CONF_DISPLAY_CATEGORIES): cv.string,
+        vol.Optional(alexa.CONF_DISPLAY_CATEGORIES): cv.string,
         vol.Optional(CONF_NAME): cv.string,
     }
 )
@@ -65,7 +81,7 @@ GOOGLE_ENTITY_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_NAME): cv.string,
         vol.Optional(CONF_ALIASES): vol.All(cv.ensure_list, [cv.string]),
-        vol.Optional(ga_c.CONF_ROOM_HINT): cv.string,
+        vol.Optional(google_assistant.CONF_ROOM_HINT): cv.string,
     }
 )
 
@@ -81,7 +97,6 @@ GACTIONS_SCHEMA = ASSISTANT_SCHEMA.extend(
     {vol.Optional(CONF_ENTITY_CONFIG): {cv.entity_id: GOOGLE_ENTITY_SCHEMA}}
 )
 
-# pylint: disable=no-value-for-parameter
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema(
@@ -92,17 +107,18 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional(CONF_COGNITO_CLIENT_ID): str,
                 vol.Optional(CONF_USER_POOL_ID): str,
                 vol.Optional(CONF_REGION): str,
-                vol.Optional(CONF_RELAYER): str,
-                vol.Optional(CONF_SUBSCRIPTION_INFO_URL): vol.Url(),
-                vol.Optional(CONF_CLOUDHOOK_CREATE_URL): vol.Url(),
-                vol.Optional(CONF_REMOTE_API_URL): vol.Url(),
-                vol.Optional(CONF_ACME_DIRECTORY_SERVER): vol.Url(),
                 vol.Optional(CONF_ALEXA): ALEXA_SCHEMA,
                 vol.Optional(CONF_GOOGLE_ACTIONS): GACTIONS_SCHEMA,
-                vol.Optional(CONF_ALEXA_ACCESS_TOKEN_URL): vol.Url(),
-                vol.Optional(CONF_GOOGLE_ACTIONS_REPORT_STATE_URL): vol.Url(),
-                vol.Optional(CONF_ACCOUNT_LINK_URL): vol.Url(),
-                vol.Optional(CONF_VOICE_API_URL): vol.Url(),
+                vol.Optional(CONF_ACCOUNT_LINK_SERVER): str,
+                vol.Optional(CONF_ACCOUNTS_SERVER): str,
+                vol.Optional(CONF_ACME_SERVER): str,
+                vol.Optional(CONF_ALEXA_SERVER): str,
+                vol.Optional(CONF_CLOUDHOOK_SERVER): str,
+                vol.Optional(CONF_RELAYER_SERVER): str,
+                vol.Optional(CONF_REMOTE_SNI_SERVER): str,
+                vol.Optional(CONF_REMOTESTATE_SERVER): str,
+                vol.Optional(CONF_THINGTALK_SERVER): str,
+                vol.Optional(CONF_VOICE_SERVER): str,
             }
         )
     },
@@ -114,11 +130,41 @@ class CloudNotAvailable(HomeAssistantError):
     """Raised when an action requires the cloud but it's not available."""
 
 
+class CloudNotConnected(CloudNotAvailable):
+    """Raised when an action requires the cloud but it's not connected."""
+
+
+class CloudConnectionState(Enum):
+    """Cloud connection state."""
+
+    CLOUD_CONNECTED = "cloud_connected"
+    CLOUD_DISCONNECTED = "cloud_disconnected"
+
+
 @bind_hass
 @callback
 def async_is_logged_in(hass: HomeAssistant) -> bool:
-    """Test if user is logged in."""
+    """Test if user is logged in.
+
+    Note: This returns True even if not currently connected to the cloud.
+    """
     return DOMAIN in hass.data and hass.data[DOMAIN].is_logged_in
+
+
+@bind_hass
+@callback
+def async_is_connected(hass: HomeAssistant) -> bool:
+    """Test if connected to the cloud."""
+    return DOMAIN in hass.data and hass.data[DOMAIN].iot.connected
+
+
+@callback
+def async_listen_connection_change(
+    hass: HomeAssistant,
+    target: Callable[[CloudConnectionState], Awaitable[None] | None],
+) -> Callable[[], None]:
+    """Notify on connection state changes."""
+    return async_dispatcher_connect(hass, SIGNAL_CLOUD_CONNECTION_STATE, target)
 
 
 @bind_hass
@@ -131,6 +177,9 @@ def async_active_subscription(hass: HomeAssistant) -> bool:
 @bind_hass
 async def async_create_cloudhook(hass: HomeAssistant, webhook_id: str) -> str:
     """Create a cloudhook."""
+    if not async_is_connected(hass):
+        raise CloudNotConnected
+
     if not async_is_logged_in(hass):
         raise CloudNotAvailable
 
@@ -207,14 +256,20 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         elif service.service == SERVICE_REMOTE_DISCONNECT:
             await prefs.async_update(remote_enabled=False)
 
-    hass.helpers.service.async_register_admin_service(
-        DOMAIN, SERVICE_REMOTE_CONNECT, _service_handler
-    )
-    hass.helpers.service.async_register_admin_service(
-        DOMAIN, SERVICE_REMOTE_DISCONNECT, _service_handler
+    async_register_admin_service(hass, DOMAIN, SERVICE_REMOTE_CONNECT, _service_handler)
+    async_register_admin_service(
+        hass, DOMAIN, SERVICE_REMOTE_DISCONNECT, _service_handler
     )
 
     loaded = False
+
+    async def async_startup_repairs(_=None) -> None:
+        """Create repair issues after startup."""
+        if not cloud.is_logged_in:
+            return
+
+        if subscription_info := await async_subscription_info(cloud):
+            async_manage_legacy_subscription_issue(hass, subscription_info)
 
     async def _on_connect():
         """Discover RemoteUI binary sensor."""
@@ -225,14 +280,18 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             return
         loaded = True
 
-        await hass.helpers.discovery.async_load_platform(
-            Platform.BINARY_SENSOR, DOMAIN, {}, config
+        await async_load_platform(hass, Platform.BINARY_SENSOR, DOMAIN, {}, config)
+        await async_load_platform(hass, Platform.STT, DOMAIN, {}, config)
+        await async_load_platform(hass, Platform.TTS, DOMAIN, {}, config)
+
+        async_dispatcher_send(
+            hass, SIGNAL_CLOUD_CONNECTION_STATE, CloudConnectionState.CLOUD_CONNECTED
         )
-        await hass.helpers.discovery.async_load_platform(
-            Platform.STT, DOMAIN, {}, config
-        )
-        await hass.helpers.discovery.async_load_platform(
-            Platform.TTS, DOMAIN, {}, config
+
+    async def _on_disconnect():
+        """Handle cloud disconnect."""
+        async_dispatcher_send(
+            hass, SIGNAL_CLOUD_CONNECTION_STATE, CloudConnectionState.CLOUD_DISCONNECTED
         )
 
     async def _on_initialized():
@@ -240,12 +299,19 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         await prefs.async_update(remote_domain=cloud.remote.instance_domain)
 
     cloud.iot.register_on_connect(_on_connect)
+    cloud.iot.register_on_disconnect(_on_disconnect)
     cloud.register_on_initialized(_on_initialized)
 
     await cloud.initialize()
     await http_api.async_setup(hass)
 
     account_link.async_setup(hass)
+
+    async_call_later(
+        hass=hass,
+        delay=timedelta(hours=1),
+        action=async_startup_repairs,
+    )
 
     return True
 

@@ -21,7 +21,11 @@ from homeassistant.const import (
     TEMP_FAHRENHEIT,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.util.unit_system import IMPERIAL_SYSTEM, METRIC_SYSTEM, UnitSystem
+from homeassistant.util.unit_system import (
+    METRIC_SYSTEM,
+    US_CUSTOMARY_SYSTEM,
+    UnitSystem,
+)
 
 from tests.common import MockConfigEntry
 
@@ -29,11 +33,10 @@ from tests.common import MockConfigEntry
 async def test_gps_sensor(
     hass: HomeAssistant,
     gps_sensor: Sensor,
-    integration: tuple[MockConfigEntry, Callable[[str], None]],
+    receive_message: Callable[[str], None],
 ) -> None:
     """Test a gps sensor."""
     entity_id = "sensor.gps_sensor_1_1"
-    _, receive_message = integration
 
     state = hass.states.get(entity_id)
 
@@ -59,7 +62,7 @@ async def test_gps_sensor(
 async def test_power_sensor(
     hass: HomeAssistant,
     power_sensor: Sensor,
-    integration: tuple[MockConfigEntry, Callable[[str], None]],
+    integration: MockConfigEntry,
 ) -> None:
     """Test a power sensor."""
     entity_id = "sensor.power_sensor_1_1"
@@ -76,7 +79,7 @@ async def test_power_sensor(
 async def test_energy_sensor(
     hass: HomeAssistant,
     energy_sensor: Sensor,
-    integration: tuple[MockConfigEntry, Callable[[str], None]],
+    integration: MockConfigEntry,
 ) -> None:
     """Test an energy sensor."""
     entity_id = "sensor.energy_sensor_1_1"
@@ -93,7 +96,7 @@ async def test_energy_sensor(
 async def test_sound_sensor(
     hass: HomeAssistant,
     sound_sensor: Sensor,
-    integration: tuple[MockConfigEntry, Callable[[str], None]],
+    integration: MockConfigEntry,
 ) -> None:
     """Test a sound sensor."""
     entity_id = "sensor.sound_sensor_1_1"
@@ -102,14 +105,14 @@ async def test_sound_sensor(
 
     assert state
     assert state.state == "10"
-    assert state.attributes[ATTR_ICON] == "mdi:volume-high"
+    assert state.attributes[ATTR_DEVICE_CLASS] == SensorDeviceClass.SOUND_PRESSURE
     assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == "dB"
 
 
 async def test_distance_sensor(
     hass: HomeAssistant,
     distance_sensor: Sensor,
-    integration: tuple[MockConfigEntry, Callable[[str], None]],
+    integration: MockConfigEntry,
 ) -> None:
     """Test a distance sensor."""
     entity_id = "sensor.distance_sensor_1_1"
@@ -118,25 +121,25 @@ async def test_distance_sensor(
 
     assert state
     assert state.state == "15"
-    assert state.attributes[ATTR_ICON] == "mdi:ruler"
+    assert state.attributes[ATTR_DEVICE_CLASS] == SensorDeviceClass.DISTANCE
+    assert ATTR_ICON not in state.attributes
     assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == "cm"
 
 
 @pytest.mark.parametrize(
     "unit_system, unit",
-    [(METRIC_SYSTEM, TEMP_CELSIUS), (IMPERIAL_SYSTEM, TEMP_FAHRENHEIT)],
+    [(METRIC_SYSTEM, TEMP_CELSIUS), (US_CUSTOMARY_SYSTEM, TEMP_FAHRENHEIT)],
 )
 async def test_temperature_sensor(
     hass: HomeAssistant,
     temperature_sensor: Sensor,
-    integration: tuple[MockConfigEntry, Callable[[str], None]],
+    receive_message: Callable[[str], None],
     unit_system: UnitSystem,
     unit: str,
 ) -> None:
     """Test a temperature sensor."""
     entity_id = "sensor.temperature_sensor_1_1"
     hass.config.units = unit_system
-    _, receive_message = integration
     temperature = "22.0"
     message_string = f"1;1;1;0;0;{temperature}\n"
 

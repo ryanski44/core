@@ -3,25 +3,28 @@ from __future__ import annotations
 
 from datetime import timedelta
 import logging
-import re
 
 from WazeRouteCalculator import WazeRouteCalculator, WRCError
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
-    ATTR_ATTRIBUTION,
     CONF_NAME,
     CONF_REGION,
-    CONF_UNIT_SYSTEM_IMPERIAL,
     EVENT_HOMEASSISTANT_STARTED,
-    TIME_MINUTES,
+    UnitOfLength,
+    UnitOfTime,
 )
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.location import find_coordinates
+from homeassistant.util.unit_conversion import DistanceConverter
 
 from .const import (
     CONF_AVOID_FERRIES,
@@ -34,14 +37,9 @@ from .const import (
     CONF_REALTIME,
     CONF_UNITS,
     CONF_VEHICLE_TYPE,
-    DEFAULT_AVOID_FERRIES,
-    DEFAULT_AVOID_SUBSCRIPTION_ROADS,
-    DEFAULT_AVOID_TOLL_ROADS,
     DEFAULT_NAME,
-    DEFAULT_REALTIME,
-    DEFAULT_VEHICLE_TYPE,
     DOMAIN,
-    ENTITY_ID_PATTERN,
+    IMPERIAL_UNITS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -55,37 +53,6 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up a Waze travel time sensor entry."""
-    defaults = {
-        CONF_REALTIME: DEFAULT_REALTIME,
-        CONF_VEHICLE_TYPE: DEFAULT_VEHICLE_TYPE,
-        CONF_UNITS: hass.config.units.name,
-        CONF_AVOID_FERRIES: DEFAULT_AVOID_FERRIES,
-        CONF_AVOID_SUBSCRIPTION_ROADS: DEFAULT_AVOID_SUBSCRIPTION_ROADS,
-        CONF_AVOID_TOLL_ROADS: DEFAULT_AVOID_TOLL_ROADS,
-    }
-
-    if not config_entry.options:
-        new_data = config_entry.data.copy()
-        options = {}
-        for key in (
-            CONF_INCL_FILTER,
-            CONF_EXCL_FILTER,
-            CONF_REALTIME,
-            CONF_VEHICLE_TYPE,
-            CONF_AVOID_TOLL_ROADS,
-            CONF_AVOID_SUBSCRIPTION_ROADS,
-            CONF_AVOID_FERRIES,
-            CONF_UNITS,
-        ):
-            if key in new_data:
-                options[key] = new_data.pop(key)
-            elif key in defaults:
-                options[key] = defaults[key]
-
-        hass.config_entries.async_update_entry(
-            config_entry, data=new_data, options=options
-        )
-
     destination = config_entry.data[CONF_DESTINATION]
     origin = config_entry.data[CONF_ORIGIN]
     region = config_entry.data[CONF_REGION]
@@ -106,7 +73,10 @@ async def async_setup_entry(
 class WazeTravelTime(SensorEntity):
     """Representation of a Waze travel time sensor."""
 
-    _attr_native_unit_of_measurement = TIME_MINUTES
+    _attr_attribution = "Powered by Waze"
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_device_info = DeviceInfo(
         entry_type=DeviceEntryType.SERVICE,
         name="Waze",
@@ -119,23 +89,10 @@ class WazeTravelTime(SensorEntity):
         self._attr_unique_id = unique_id
         self._waze_data = waze_data
         self._attr_name = name
+        self._origin = origin
+        self._destination = destination
         self._attr_icon = "mdi:car"
         self._state = None
-        self._origin_entity_id = None
-        self._destination_entity_id = None
-
-        cmpl_re = re.compile(ENTITY_ID_PATTERN)
-        if cmpl_re.fullmatch(origin):
-            _LOGGER.debug("Found origin source entity %s", origin)
-            self._origin_entity_id = origin
-        else:
-            self._waze_data.origin = origin
-
-        if cmpl_re.fullmatch(destination):
-            _LOGGER.debug("Found destination source entity %s", destination)
-            self._destination_entity_id = destination
-        else:
-            self._waze_data.destination = destination
 
     async def async_added_to_hass(self) -> None:
         """Handle when entity is added."""
@@ -161,7 +118,6 @@ class WazeTravelTime(SensorEntity):
             return None
 
         return {
-            ATTR_ATTRIBUTION: "Powered by Waze",
             "duration": self._waze_data.duration,
             "distance": self._waze_data.distance,
             "route": self._waze_data.route,
@@ -174,19 +130,11 @@ class WazeTravelTime(SensorEntity):
         await self.hass.async_add_executor_job(self.update)
         self.async_write_ha_state()
 
-    def update(self):
+    def update(self) -> None:
         """Fetch new state data for the sensor."""
         _LOGGER.debug("Fetching Route for %s", self._attr_name)
-        # Get origin latitude and longitude from entity_id.
-        if self._origin_entity_id is not None:
-            self._waze_data.origin = find_coordinates(self.hass, self._origin_entity_id)
-
-        # Get destination latitude and longitude from entity_id.
-        if self._destination_entity_id is not None:
-            self._waze_data.destination = find_coordinates(
-                self.hass, self._destination_entity_id
-            )
-
+        self._waze_data.origin = find_coordinates(self.hass, self._origin)
+        self._waze_data.destination = find_coordinates(self.hass, self._destination)
         self._waze_data.update()
 
 
@@ -205,6 +153,11 @@ class WazeTravelTimeData:
 
     def update(self):
         """Update WazeRouteCalculator Sensor."""
+        _LOGGER.debug(
+            "Getting update for origin: %s destination: %s",
+            self.origin,
+            self.destination,
+        )
         if self.origin is not None and self.destination is not None:
             # Grab options on every update
             incl_filter = self.config_entry.options.get(CONF_INCL_FILTER)
@@ -231,14 +184,14 @@ class WazeTravelTimeData:
                 )
                 routes = params.calc_all_routes_info(real_time=realtime)
 
-                if incl_filter is not None:
+                if incl_filter not in {None, ""}:
                     routes = {
                         k: v
                         for k, v in routes.items()
                         if incl_filter.lower() in k.lower()
                     }
 
-                if excl_filter is not None:
+                if excl_filter not in {None, ""}:
                     routes = {
                         k: v
                         for k, v in routes.items()
@@ -253,9 +206,11 @@ class WazeTravelTimeData:
 
                 self.duration, distance = routes[route]
 
-                if units == CONF_UNIT_SYSTEM_IMPERIAL:
+                if units == IMPERIAL_UNITS:
                     # Convert to miles.
-                    self.distance = distance / 1.609
+                    self.distance = DistanceConverter.convert(
+                        distance, UnitOfLength.KILOMETERS, UnitOfLength.MILES
+                    )
                 else:
                     self.distance = distance
 

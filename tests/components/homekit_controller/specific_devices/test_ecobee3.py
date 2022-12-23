@@ -6,10 +6,10 @@ https://github.com/home-assistant/core/issues/15336
 
 from unittest import mock
 
-from aiohomekit import AccessoryDisconnectedError
+from aiohomekit import AccessoryNotFoundError
 from aiohomekit.testing import FakePairing
 
-from homeassistant.components.climate.const import (
+from homeassistant.components.climate import (
     SUPPORT_TARGET_HUMIDITY,
     SUPPORT_TARGET_TEMPERATURE,
     SUPPORT_TARGET_TEMPERATURE_RANGE,
@@ -19,7 +19,8 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import TEMP_CELSIUS
 from homeassistant.helpers import entity_registry as er
 
-from tests.components.homekit_controller.common import (
+from ..common import (
+    HUB_TEST_ACCESSORY_ID,
     DeviceTestInfo,
     EntityTestInfo,
     assert_devices_and_entities_created,
@@ -38,7 +39,7 @@ async def test_ecobee3_setup(hass):
     await assert_devices_and_entities_created(
         hass,
         DeviceTestInfo(
-            unique_id="00:00:00:00:00:00",
+            unique_id=HUB_TEST_ACCESSORY_ID,
             name="HomeW",
             model="ecobee3",
             manufacturer="ecobee Inc.",
@@ -53,12 +54,13 @@ async def test_ecobee3_setup(hass):
                     sw_version="1.0.0",
                     hw_version="",
                     serial_number="AB1C",
+                    unique_id="00:00:00:00:00:00:aid:2",
                     devices=[],
                     entities=[
                         EntityTestInfo(
                             entity_id="binary_sensor.kitchen",
                             friendly_name="Kitchen",
-                            unique_id="homekit-AB1C-56",
+                            unique_id="00:00:00:00:00:00_2_56",
                             state="off",
                         ),
                     ],
@@ -70,12 +72,13 @@ async def test_ecobee3_setup(hass):
                     sw_version="1.0.0",
                     hw_version="",
                     serial_number="AB2C",
+                    unique_id="00:00:00:00:00:00:aid:3",
                     devices=[],
                     entities=[
                         EntityTestInfo(
                             entity_id="binary_sensor.porch",
                             friendly_name="Porch",
-                            unique_id="homekit-AB2C-56",
+                            unique_id="00:00:00:00:00:00_3_56",
                             state="off",
                         ),
                     ],
@@ -87,12 +90,13 @@ async def test_ecobee3_setup(hass):
                     sw_version="1.0.0",
                     hw_version="",
                     serial_number="AB3C",
+                    unique_id="00:00:00:00:00:00:aid:4",
                     devices=[],
                     entities=[
                         EntityTestInfo(
                             entity_id="binary_sensor.basement",
                             friendly_name="Basement",
-                            unique_id="homekit-AB3C-56",
+                            unique_id="00:00:00:00:00:00_4_56",
                             state="off",
                         ),
                     ],
@@ -102,7 +106,7 @@ async def test_ecobee3_setup(hass):
                 EntityTestInfo(
                     entity_id="climate.homew",
                     friendly_name="HomeW",
-                    unique_id="homekit-123456789012-16",
+                    unique_id="00:00:00:00:00:00_1_16",
                     supported_features=(
                         SUPPORT_TARGET_TEMPERATURE
                         | SUPPORT_TARGET_TEMPERATURE_RANGE
@@ -119,11 +123,18 @@ async def test_ecobee3_setup(hass):
                 ),
                 EntityTestInfo(
                     entity_id="sensor.homew_current_temperature",
-                    friendly_name="HomeW - Current Temperature",
-                    unique_id="homekit-123456789012-aid:1-sid:16-cid:19",
+                    friendly_name="HomeW Current Temperature",
+                    unique_id="00:00:00:00:00:00_1_16_19",
                     capabilities={"state_class": SensorStateClass.MEASUREMENT},
                     unit_of_measurement=TEMP_CELSIUS,
                     state="21.8",
+                ),
+                EntityTestInfo(
+                    entity_id="select.homew_current_mode",
+                    friendly_name="HomeW Current Mode",
+                    unique_id="00:00:00:00:00:00_1_16_33",
+                    capabilities={"options": ["home", "sleep", "away"]},
+                    state="home",
                 ),
             ],
         ),
@@ -138,7 +149,7 @@ async def test_ecobee3_setup_from_cache(hass, hass_storage):
         "version": 1,
         "data": {
             "pairings": {
-                "00:00:00:00:00:00": {
+                HUB_TEST_ACCESSORY_ID: {
                     "config_num": 1,
                     "accessories": [
                         a.to_accessory_and_service_list() for a in accessories
@@ -153,16 +164,16 @@ async def test_ecobee3_setup_from_cache(hass, hass_storage):
     entity_registry = er.async_get(hass)
 
     climate = entity_registry.async_get("climate.homew")
-    assert climate.unique_id == "homekit-123456789012-16"
+    assert climate.unique_id == "00:00:00:00:00:00_1_16"
 
     occ1 = entity_registry.async_get("binary_sensor.kitchen")
-    assert occ1.unique_id == "homekit-AB1C-56"
+    assert occ1.unique_id == "00:00:00:00:00:00_2_56"
 
     occ2 = entity_registry.async_get("binary_sensor.porch")
-    assert occ2.unique_id == "homekit-AB2C-56"
+    assert occ2.unique_id == "00:00:00:00:00:00_3_56"
 
     occ3 = entity_registry.async_get("binary_sensor.basement")
-    assert occ3.unique_id == "homekit-AB3C-56"
+    assert occ3.unique_id == "00:00:00:00:00:00_4_56"
 
 
 async def test_ecobee3_setup_connection_failure(hass):
@@ -173,9 +184,8 @@ async def test_ecobee3_setup_connection_failure(hass):
 
     # Test that the connection fails during initial setup.
     # No entities should be created.
-    list_accessories = "list_accessories_and_characteristics"
-    with mock.patch.object(FakePairing, list_accessories) as laac:
-        laac.side_effect = AccessoryDisconnectedError("Connection failed")
+    with mock.patch.object(FakePairing, "async_populate_accessories_state") as laac:
+        laac.side_effect = AccessoryNotFoundError("Connection failed")
 
         # If there is no cached entity map and the accessory connection is
         # failing then we have to fail the config entry setup.
@@ -194,16 +204,16 @@ async def test_ecobee3_setup_connection_failure(hass):
     await time_changed(hass, 5 * 60)
 
     climate = entity_registry.async_get("climate.homew")
-    assert climate.unique_id == "homekit-123456789012-16"
+    assert climate.unique_id == "00:00:00:00:00:00_1_16"
 
     occ1 = entity_registry.async_get("binary_sensor.kitchen")
-    assert occ1.unique_id == "homekit-AB1C-56"
+    assert occ1.unique_id == "00:00:00:00:00:00_2_56"
 
     occ2 = entity_registry.async_get("binary_sensor.porch")
-    assert occ2.unique_id == "homekit-AB2C-56"
+    assert occ2.unique_id == "00:00:00:00:00:00_3_56"
 
     occ3 = entity_registry.async_get("binary_sensor.basement")
-    assert occ3.unique_id == "homekit-AB3C-56"
+    assert occ3.unique_id == "00:00:00:00:00:00_4_56"
 
 
 async def test_ecobee3_add_sensors_at_runtime(hass):
@@ -216,7 +226,7 @@ async def test_ecobee3_add_sensors_at_runtime(hass):
     await setup_test_accessories(hass, accessories)
 
     climate = entity_registry.async_get("climate.homew")
-    assert climate.unique_id == "homekit-123456789012-16"
+    assert climate.unique_id == "00:00:00:00:00:00_1_16"
 
     occ1 = entity_registry.async_get("binary_sensor.kitchen")
     assert occ1 is None
@@ -233,10 +243,10 @@ async def test_ecobee3_add_sensors_at_runtime(hass):
     await device_config_changed(hass, accessories)
 
     occ1 = entity_registry.async_get("binary_sensor.kitchen")
-    assert occ1.unique_id == "homekit-AB1C-56"
+    assert occ1.unique_id == "00:00:00:00:00:00_2_56"
 
     occ2 = entity_registry.async_get("binary_sensor.porch")
-    assert occ2.unique_id == "homekit-AB2C-56"
+    assert occ2.unique_id == "00:00:00:00:00:00_3_56"
 
     occ3 = entity_registry.async_get("binary_sensor.basement")
-    assert occ3.unique_id == "homekit-AB3C-56"
+    assert occ3.unique_id == "00:00:00:00:00:00_4_56"

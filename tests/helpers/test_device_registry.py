@@ -96,8 +96,12 @@ async def test_get_or_create_returns_same_entry(
     assert len(update_events) == 2
     assert update_events[0]["action"] == "create"
     assert update_events[0]["device_id"] == entry.id
+    assert "changes" not in update_events[0]
     assert update_events[1]["action"] == "update"
     assert update_events[1]["device_id"] == entry.id
+    assert update_events[1]["changes"] == {
+        "connections": {("mac", "12:34:56:ab:cd:ef")}
+    }
 
 
 async def test_requirement_for_identifier_or_connection(registry):
@@ -172,12 +176,14 @@ async def test_loading_from_storage(hass, hass_storage):
         "data": {
             "devices": [
                 {
+                    "aliases": ["alias_1", "alias_2"],
                     "area_id": "12345A",
                     "config_entries": ["1234"],
-                    "configuration_url": None,
+                    "configuration_url": "configuration_url",
                     "connections": [["Zigbee", "01.23.45.67.89"]],
                     "disabled_by": device_registry.DeviceEntryDisabler.USER,
                     "entry_type": device_registry.DeviceEntryType.SERVICE,
+                    "hw_version": "hw_version",
                     "id": "abcdefghijklm",
                     "identifiers": [["serial", "12:34:56:AB:CD:EF"]],
                     "manufacturer": "manufacturer",
@@ -185,7 +191,6 @@ async def test_loading_from_storage(hass, hass_storage):
                     "name_by_user": "Test Friendly Name",
                     "name": "name",
                     "sw_version": "version",
-                    "hw_version": "hw_version",
                     "via_device_id": None,
                 }
             ],
@@ -213,19 +218,40 @@ async def test_loading_from_storage(hass, hass_storage):
         manufacturer="manufacturer",
         model="model",
     )
-    assert entry.id == "abcdefghijklm"
-    assert entry.area_id == "12345A"
-    assert entry.name_by_user == "Test Friendly Name"
-    assert entry.hw_version == "hw_version"
-    assert entry.entry_type is device_registry.DeviceEntryType.SERVICE
-    assert entry.disabled_by is device_registry.DeviceEntryDisabler.USER
+    assert entry == device_registry.DeviceEntry(
+        aliases={"alias_1", "alias_2"},
+        area_id="12345A",
+        config_entries={"1234"},
+        configuration_url="configuration_url",
+        connections={("Zigbee", "01.23.45.67.89")},
+        disabled_by=device_registry.DeviceEntryDisabler.USER,
+        entry_type=device_registry.DeviceEntryType.SERVICE,
+        hw_version="hw_version",
+        id="abcdefghijklm",
+        identifiers={("serial", "12:34:56:AB:CD:EF")},
+        manufacturer="manufacturer",
+        model="model",
+        name_by_user="Test Friendly Name",
+        name="name",
+        suggested_area=None,  # Not stored
+        sw_version="version",
+    )
     assert isinstance(entry.config_entries, set)
     assert isinstance(entry.connections, set)
     assert isinstance(entry.identifiers, set)
 
+    # Restore a device, id should be reused from the deleted device entry
     entry = registry.async_get_or_create(
         config_entry_id="1234",
         connections={("Zigbee", "23.45.67.89.01")},
+        identifiers={("serial", "34:56:AB:CD:EF:12")},
+        manufacturer="manufacturer",
+        model="model",
+    )
+    assert entry == device_registry.DeviceEntry(
+        config_entries={"1234"},
+        connections={("Zigbee", "23.45.67.89.01")},
+        id="bcdefghijklmn",
         identifiers={("serial", "34:56:AB:CD:EF:12")},
         manufacturer="manufacturer",
         model="model",
@@ -237,8 +263,8 @@ async def test_loading_from_storage(hass, hass_storage):
 
 
 @pytest.mark.parametrize("load_registries", [False])
-async def test_migration_1_1_to_1_3(hass, hass_storage):
-    """Test migration from version 1.1 to 1.3."""
+async def test_migration_from_1_1(hass, hass_storage):
+    """Test migration from version 1.1."""
     hass_storage[device_registry.STORAGE_KEY] = {
         "version": 1,
         "minor_version": 1,
@@ -313,12 +339,14 @@ async def test_migration_1_1_to_1_3(hass, hass_storage):
         "data": {
             "devices": [
                 {
+                    "aliases": [],
                     "area_id": None,
                     "config_entries": ["1234"],
                     "configuration_url": None,
                     "connections": [["Zigbee", "01.23.45.67.89"]],
                     "disabled_by": None,
                     "entry_type": "service",
+                    "hw_version": None,
                     "id": "abcdefghijklm",
                     "identifiers": [["serial", "12:34:56:AB:CD:EF"]],
                     "manufacturer": "manufacturer",
@@ -326,16 +354,17 @@ async def test_migration_1_1_to_1_3(hass, hass_storage):
                     "name": "name",
                     "name_by_user": None,
                     "sw_version": "new_version",
-                    "hw_version": None,
                     "via_device_id": None,
                 },
                 {
+                    "aliases": [],
                     "area_id": None,
                     "config_entries": [None],
                     "configuration_url": None,
                     "connections": [],
                     "disabled_by": None,
                     "entry_type": None,
+                    "hw_version": None,
                     "id": "invalid-entry-type",
                     "identifiers": [["serial", "mock-id-invalid-entry"]],
                     "manufacturer": None,
@@ -343,7 +372,6 @@ async def test_migration_1_1_to_1_3(hass, hass_storage):
                     "name_by_user": None,
                     "name": None,
                     "sw_version": None,
-                    "hw_version": None,
                     "via_device_id": None,
                 },
             ],
@@ -361,8 +389,8 @@ async def test_migration_1_1_to_1_3(hass, hass_storage):
 
 
 @pytest.mark.parametrize("load_registries", [False])
-async def test_migration_1_2_to_1_3(hass, hass_storage):
-    """Test migration from version 1.2 to 1.3."""
+async def test_migration_from_1_2(hass, hass_storage):
+    """Test migration from version 1.2."""
     hass_storage[device_registry.STORAGE_KEY] = {
         "version": 1,
         "minor_version": 2,
@@ -382,8 +410,7 @@ async def test_migration_1_2_to_1_3(hass, hass_storage):
                     "model": "model",
                     "name": "name",
                     "name_by_user": None,
-                    "sw_version": "new_version",
-                    "hw_version": None,
+                    "sw_version": "version",
                     "via_device_id": None,
                 },
                 {
@@ -400,7 +427,6 @@ async def test_migration_1_2_to_1_3(hass, hass_storage):
                     "name_by_user": None,
                     "name": None,
                     "sw_version": None,
-                    "hw_version": None,
                     "via_device_id": None,
                 },
             ],
@@ -424,7 +450,7 @@ async def test_migration_1_2_to_1_3(hass, hass_storage):
         config_entry_id="1234",
         connections={("Zigbee", "01.23.45.67.89")},
         identifiers={("serial", "12:34:56:AB:CD:EF")},
-        hw_version="new_version",
+        sw_version="new_version",
     )
     assert entry.id == "abcdefghijklm"
 
@@ -438,12 +464,14 @@ async def test_migration_1_2_to_1_3(hass, hass_storage):
         "data": {
             "devices": [
                 {
+                    "aliases": [],
                     "area_id": None,
                     "config_entries": ["1234"],
                     "configuration_url": None,
                     "connections": [["Zigbee", "01.23.45.67.89"]],
                     "disabled_by": None,
                     "entry_type": "service",
+                    "hw_version": None,
                     "id": "abcdefghijklm",
                     "identifiers": [["serial", "12:34:56:AB:CD:EF"]],
                     "manufacturer": "manufacturer",
@@ -451,16 +479,17 @@ async def test_migration_1_2_to_1_3(hass, hass_storage):
                     "name": "name",
                     "name_by_user": None,
                     "sw_version": "new_version",
-                    "hw_version": "new_version",
                     "via_device_id": None,
                 },
                 {
+                    "aliases": [],
                     "area_id": None,
                     "config_entries": [None],
                     "configuration_url": None,
                     "connections": [],
                     "disabled_by": None,
                     "entry_type": None,
+                    "hw_version": None,
                     "id": "invalid-entry-type",
                     "identifiers": [["serial", "mock-id-invalid-entry"]],
                     "manufacturer": None,
@@ -468,7 +497,6 @@ async def test_migration_1_2_to_1_3(hass, hass_storage):
                     "name_by_user": None,
                     "name": None,
                     "sw_version": None,
-                    "hw_version": None,
                     "via_device_id": None,
                 },
             ],
@@ -518,14 +546,19 @@ async def test_removing_config_entries(hass, registry, update_events):
     assert len(update_events) == 5
     assert update_events[0]["action"] == "create"
     assert update_events[0]["device_id"] == entry.id
+    assert "changes" not in update_events[0]
     assert update_events[1]["action"] == "update"
     assert update_events[1]["device_id"] == entry2.id
+    assert update_events[1]["changes"] == {"config_entries": {"123"}}
     assert update_events[2]["action"] == "create"
     assert update_events[2]["device_id"] == entry3.id
+    assert "changes" not in update_events[2]
     assert update_events[3]["action"] == "update"
     assert update_events[3]["device_id"] == entry.id
+    assert update_events[3]["changes"] == {"config_entries": {"456", "123"}}
     assert update_events[4]["action"] == "remove"
     assert update_events[4]["device_id"] == entry3.id
+    assert "changes" not in update_events[4]
 
 
 async def test_deleted_device_removing_config_entries(hass, registry, update_events):
@@ -568,14 +601,19 @@ async def test_deleted_device_removing_config_entries(hass, registry, update_eve
     assert len(update_events) == 5
     assert update_events[0]["action"] == "create"
     assert update_events[0]["device_id"] == entry.id
+    assert "changes" not in update_events[0]
     assert update_events[1]["action"] == "update"
     assert update_events[1]["device_id"] == entry2.id
+    assert update_events[1]["changes"] == {"config_entries": {"123"}}
     assert update_events[2]["action"] == "create"
     assert update_events[2]["device_id"] == entry3.id
+    assert "changes" not in update_events[2]["device_id"]
     assert update_events[3]["action"] == "remove"
     assert update_events[3]["device_id"] == entry.id
+    assert "changes" not in update_events[3]
     assert update_events[4]["action"] == "remove"
     assert update_events[4]["device_id"] == entry3.id
+    assert "changes" not in update_events[4]
 
     registry.async_clear_config_entry("123")
     assert len(registry.devices) == 0
@@ -629,36 +667,6 @@ async def test_removing_area_id(registry):
     entry_w_area = registry.async_update_device(entry.id, area_id="12345A")
 
     registry.async_clear_area_id("12345A")
-    entry_wo_area = registry.async_get_device({("bridgeid", "0123")})
-
-    assert not entry_wo_area.area_id
-    assert entry_w_area != entry_wo_area
-
-
-async def test_deleted_device_removing_area_id(registry):
-    """Make sure we can clear area id of deleted device."""
-    entry = registry.async_get_or_create(
-        config_entry_id="123",
-        connections={(device_registry.CONNECTION_NETWORK_MAC, "12:34:56:AB:CD:EF")},
-        identifiers={("bridgeid", "0123")},
-        manufacturer="manufacturer",
-        model="model",
-    )
-
-    entry_w_area = registry.async_update_device(entry.id, area_id="12345A")
-
-    registry.async_remove_device(entry.id)
-    registry.async_clear_area_id("12345A")
-
-    entry2 = registry.async_get_or_create(
-        config_entry_id="123",
-        connections={(device_registry.CONNECTION_NETWORK_MAC, "12:34:56:AB:CD:EF")},
-        identifiers={("bridgeid", "0123")},
-        manufacturer="manufacturer",
-        model="model",
-    )
-    assert entry.id == entry2.id
-
     entry_wo_area = registry.async_get_device({("bridgeid", "0123")})
 
     assert not entry_wo_area.area_id
@@ -892,7 +900,7 @@ async def test_format_mac(registry):
         assert list(invalid_mac_entry.connections)[0][1] == invalid
 
 
-async def test_update(registry):
+async def test_update(hass, registry, update_events):
     """Verify that we can update some attributes of a device."""
     entry = registry.async_get_or_create(
         config_entry_id="1234",
@@ -906,24 +914,43 @@ async def test_update(registry):
     with patch.object(registry, "async_schedule_save") as mock_save:
         updated_entry = registry.async_update_device(
             entry.id,
+            aliases={"alias_1", "alias_2"},
             area_id="12345A",
+            configuration_url="configuration_url",
+            disabled_by=device_registry.DeviceEntryDisabler.USER,
+            entry_type=device_registry.DeviceEntryType.SERVICE,
+            hw_version="hw_version",
             manufacturer="Test Producer",
             model="Test Model",
             name_by_user="Test Friendly Name",
+            name="name",
             new_identifiers=new_identifiers,
+            suggested_area="suggested_area",
+            sw_version="version",
             via_device_id="98765B",
-            disabled_by=device_registry.DeviceEntryDisabler.USER,
         )
 
     assert mock_save.call_count == 1
     assert updated_entry != entry
-    assert updated_entry.area_id == "12345A"
-    assert updated_entry.manufacturer == "Test Producer"
-    assert updated_entry.model == "Test Model"
-    assert updated_entry.name_by_user == "Test Friendly Name"
-    assert updated_entry.identifiers == new_identifiers
-    assert updated_entry.via_device_id == "98765B"
-    assert updated_entry.disabled_by is device_registry.DeviceEntryDisabler.USER
+    assert updated_entry == device_registry.DeviceEntry(
+        aliases={"alias_1", "alias_2"},
+        area_id="12345A",
+        config_entries={"1234"},
+        configuration_url="configuration_url",
+        connections={("mac", "12:34:56:ab:cd:ef")},
+        disabled_by=device_registry.DeviceEntryDisabler.USER,
+        entry_type=device_registry.DeviceEntryType.SERVICE,
+        hw_version="hw_version",
+        id=entry.id,
+        identifiers={("bla", "321"), ("hue", "654")},
+        manufacturer="Test Producer",
+        model="Test Model",
+        name_by_user="Test Friendly Name",
+        name="name",
+        suggested_area="suggested_area",
+        sw_version="version",
+        via_device_id="98765B",
+    )
 
     assert registry.async_get_device({("hue", "456")}) is None
     assert registry.async_get_device({("bla", "123")}) is None
@@ -939,6 +966,31 @@ async def test_update(registry):
     )
 
     assert registry.async_get(updated_entry.id) is not None
+
+    await hass.async_block_till_done()
+
+    assert len(update_events) == 2
+    assert update_events[0]["action"] == "create"
+    assert update_events[0]["device_id"] == entry.id
+    assert "changes" not in update_events[0]
+    assert update_events[1]["action"] == "update"
+    assert update_events[1]["device_id"] == entry.id
+    assert update_events[1]["changes"] == {
+        "aliases": set(),
+        "area_id": None,
+        "configuration_url": None,
+        "disabled_by": None,
+        "entry_type": None,
+        "hw_version": None,
+        "identifiers": {("bla", "123"), ("hue", "456")},
+        "manufacturer": None,
+        "model": None,
+        "name": None,
+        "name_by_user": None,
+        "suggested_area": None,
+        "sw_version": None,
+        "via_device_id": None,
+    }
 
 
 async def test_update_remove_config_entries(hass, registry, update_events):
@@ -989,53 +1041,22 @@ async def test_update_remove_config_entries(hass, registry, update_events):
     assert len(update_events) == 5
     assert update_events[0]["action"] == "create"
     assert update_events[0]["device_id"] == entry.id
+    assert "changes" not in update_events[0]
     assert update_events[1]["action"] == "update"
     assert update_events[1]["device_id"] == entry2.id
+    assert update_events[1]["changes"] == {"config_entries": {"123"}}
     assert update_events[2]["action"] == "create"
     assert update_events[2]["device_id"] == entry3.id
+    assert "changes" not in update_events[2]
     assert update_events[3]["action"] == "update"
     assert update_events[3]["device_id"] == entry.id
+    assert update_events[3]["changes"] == {"config_entries": {"456", "123"}}
     assert update_events[4]["action"] == "remove"
     assert update_events[4]["device_id"] == entry3.id
+    assert "changes" not in update_events[4]
 
 
-async def test_update_sw_version(registry):
-    """Verify that we can update software version of a device."""
-    entry = registry.async_get_or_create(
-        config_entry_id="1234",
-        connections={(device_registry.CONNECTION_NETWORK_MAC, "12:34:56:AB:CD:EF")},
-        identifiers={("bla", "123")},
-    )
-    assert not entry.sw_version
-    sw_version = "0x20020263"
-
-    with patch.object(registry, "async_schedule_save") as mock_save:
-        updated_entry = registry.async_update_device(entry.id, sw_version=sw_version)
-
-    assert mock_save.call_count == 1
-    assert updated_entry != entry
-    assert updated_entry.sw_version == sw_version
-
-
-async def test_update_hw_version(registry):
-    """Verify that we can update hardware version of a device."""
-    entry = registry.async_get_or_create(
-        config_entry_id="1234",
-        connections={(device_registry.CONNECTION_NETWORK_MAC, "12:34:56:AB:CD:EF")},
-        identifiers={("bla", "123")},
-    )
-    assert not entry.hw_version
-    hw_version = "0x20020263"
-
-    with patch.object(registry, "async_schedule_save") as mock_save:
-        updated_entry = registry.async_update_device(entry.id, hw_version=hw_version)
-
-    assert mock_save.call_count == 1
-    assert updated_entry != entry
-    assert updated_entry.hw_version == hw_version
-
-
-async def test_update_suggested_area(registry, area_registry):
+async def test_update_suggested_area(hass, registry, area_registry, update_events):
     """Verify that we can update the suggested area version of a device."""
     entry = registry.async_get_or_create(
         config_entry_id="1234",
@@ -1060,6 +1081,26 @@ async def test_update_suggested_area(registry, area_registry):
     assert pool_area is not None
     assert updated_entry.area_id == pool_area.id
     assert len(area_registry.areas) == 1
+
+    await hass.async_block_till_done()
+
+    assert len(update_events) == 2
+    assert update_events[0]["action"] == "create"
+    assert update_events[0]["device_id"] == entry.id
+    assert "changes" not in update_events[0]
+    assert update_events[1]["action"] == "update"
+    assert update_events[1]["device_id"] == entry.id
+    assert update_events[1]["changes"] == {"area_id": None, "suggested_area": None}
+
+    # Do not save or fire the event if the suggested
+    # area does not result in a change of area
+    # but still update the actual entry
+    with patch.object(registry, "async_schedule_save") as mock_save_2:
+        updated_entry = registry.async_update_device(entry.id, suggested_area="Other")
+    assert len(update_events) == 2
+    assert mock_save_2.call_count == 0
+    assert updated_entry != entry
+    assert updated_entry.suggested_area == "Other"
 
 
 async def test_cleanup_device_registry(hass, registry):
@@ -1221,12 +1262,16 @@ async def test_restore_device(hass, registry, update_events):
     assert len(update_events) == 4
     assert update_events[0]["action"] == "create"
     assert update_events[0]["device_id"] == entry.id
+    assert "changes" not in update_events[0]
     assert update_events[1]["action"] == "remove"
     assert update_events[1]["device_id"] == entry.id
+    assert "changes" not in update_events[1]
     assert update_events[2]["action"] == "create"
     assert update_events[2]["device_id"] == entry2.id
+    assert "changes" not in update_events[2]
     assert update_events[3]["action"] == "create"
     assert update_events[3]["device_id"] == entry3.id
+    assert "changes" not in update_events[3]
 
 
 async def test_restore_simple_device(hass, registry, update_events):
@@ -1266,12 +1311,16 @@ async def test_restore_simple_device(hass, registry, update_events):
     assert len(update_events) == 4
     assert update_events[0]["action"] == "create"
     assert update_events[0]["device_id"] == entry.id
+    assert "changes" not in update_events[0]
     assert update_events[1]["action"] == "remove"
     assert update_events[1]["device_id"] == entry.id
+    assert "changes" not in update_events[1]
     assert update_events[2]["action"] == "create"
     assert update_events[2]["device_id"] == entry2.id
+    assert "changes" not in update_events[2]
     assert update_events[3]["action"] == "create"
     assert update_events[3]["device_id"] == entry3.id
+    assert "changes" not in update_events[3]
 
 
 async def test_restore_shared_device(hass, registry, update_events):
@@ -1358,18 +1407,31 @@ async def test_restore_shared_device(hass, registry, update_events):
     assert len(update_events) == 7
     assert update_events[0]["action"] == "create"
     assert update_events[0]["device_id"] == entry.id
+    assert "changes" not in update_events[0]
     assert update_events[1]["action"] == "update"
     assert update_events[1]["device_id"] == entry.id
+    assert update_events[1]["changes"] == {
+        "config_entries": {"123"},
+        "identifiers": {("entry_123", "0123")},
+    }
     assert update_events[2]["action"] == "remove"
     assert update_events[2]["device_id"] == entry.id
+    assert "changes" not in update_events[2]
     assert update_events[3]["action"] == "create"
     assert update_events[3]["device_id"] == entry.id
+    assert "changes" not in update_events[3]
     assert update_events[4]["action"] == "remove"
     assert update_events[4]["device_id"] == entry.id
+    assert "changes" not in update_events[4]
     assert update_events[5]["action"] == "create"
     assert update_events[5]["device_id"] == entry.id
-    assert update_events[1]["action"] == "update"
-    assert update_events[1]["device_id"] == entry.id
+    assert "changes" not in update_events[5]
+    assert update_events[6]["action"] == "update"
+    assert update_events[6]["device_id"] == entry.id
+    assert update_events[6]["changes"] == {
+        "config_entries": {"234"},
+        "identifiers": {("entry_234", "2345")},
+    }
 
 
 async def test_get_or_create_empty_then_set_default_values(hass, registry):

@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable, Iterable
 import dataclasses
 from functools import partial, wraps
 import logging
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, TypeVar
 
 from typing_extensions import TypeGuard
 import voluptuous as vol
@@ -19,9 +19,9 @@ from homeassistant.const import (
     CONF_ENTITY_ID,
     CONF_SERVICE,
     CONF_SERVICE_DATA,
+    CONF_SERVICE_DATA_TEMPLATE,
     CONF_SERVICE_TEMPLATE,
     CONF_TARGET,
-    ENTITY_CATEGORIES,
     ENTITY_MATCH_ALL,
     ENTITY_MATCH_NONE,
 )
@@ -32,13 +32,7 @@ from homeassistant.exceptions import (
     Unauthorized,
     UnknownUser,
 )
-from homeassistant.loader import (
-    MAX_LOAD_CONCURRENTLY,
-    Integration,
-    async_get_integration,
-    bind_hass,
-)
-from homeassistant.util.async_ import gather_with_concurrency
+from homeassistant.loader import Integration, async_get_integrations, bind_hass
 from homeassistant.util.yaml import load_yaml
 from homeassistant.util.yaml.loader import JSON_TYPE
 
@@ -55,9 +49,10 @@ if TYPE_CHECKING:
     from .entity import Entity
     from .entity_platform import EntityPlatform
 
+    _EntityT = TypeVar("_EntityT", bound=Entity)
+
 
 CONF_SERVICE_ENTITY_ID = "entity_id"
-CONF_SERVICE_DATA_TEMPLATE = "data_template"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -128,7 +123,10 @@ class SelectedEntities:
         if not parts:
             return
 
-        _LOGGER.warning("Unable to find referenced %s", ", ".join(parts))
+        _LOGGER.warning(
+            "Unable to find referenced %s or it is/they are currently not available",
+            ", ".join(parts),
+        )
 
 
 @bind_hass
@@ -204,7 +202,7 @@ def async_prepare_call_from_config(
                 f"Template rendered invalid service: {domain_service}"
             ) from ex
 
-    domain, service = domain_service.split(".", 1)
+    domain, _, service = domain_service.partition(".")
 
     target = {}
     if CONF_TARGET in config:
@@ -219,9 +217,12 @@ def async_prepare_call_from_config(
 
             if CONF_ENTITY_ID in target:
                 registry = entity_registry.async_get(hass)
-                target[CONF_ENTITY_ID] = entity_registry.async_resolve_entity_ids(
-                    registry, cv.comp_entity_ids_or_uuids(target[CONF_ENTITY_ID])
-                )
+                entity_ids = cv.comp_entity_ids_or_uuids(target[CONF_ENTITY_ID])
+                if entity_ids not in (ENTITY_MATCH_ALL, ENTITY_MATCH_NONE):
+                    entity_ids = entity_registry.async_validate_entity_ids(
+                        registry, entity_ids
+                    )
+                target[CONF_ENTITY_ID] = entity_ids
         except TemplateError as ex:
             raise HomeAssistantError(
                 f"Error rendering service target template: {ex}"
@@ -277,10 +278,10 @@ def extract_entity_ids(
 @bind_hass
 async def async_extract_entities(
     hass: HomeAssistant,
-    entities: Iterable[Entity],
+    entities: Iterable[_EntityT],
     service_call: ServiceCall,
     expand_group: bool = True,
-) -> list[Entity]:
+) -> list[_EntityT]:
     """Extract a list of entity objects from a service call.
 
     Will convert group entity ids to the entity ids it represents.
@@ -360,7 +361,7 @@ def async_extract_referenced_entity_ids(
         if area_id not in area_reg.areas:
             selected.missing_areas.add(area_id)
 
-    # Find devices for this area
+    # Find devices for targeted areas
     selected.referenced_devices.update(selector.device_ids)
     for device_entry in dev_reg.devices.values():
         if device_entry.area_id in selector.area_ids:
@@ -370,19 +371,20 @@ def async_extract_referenced_entity_ids(
         return selected
 
     for ent_entry in ent_reg.entities.values():
-        # Do not add config or diagnostic entities referenced by areas or devices
-        if ent_entry.entity_category in ENTITY_CATEGORIES:
+        # Do not add entities which are hidden or which are config or diagnostic entities
+        if ent_entry.entity_category is not None or ent_entry.hidden_by is not None:
             continue
 
         if (
-            # when area matches the target area
+            # The entity's area matches a targeted area
             ent_entry.area_id in selector.area_ids
-            # when device matches a referenced devices with no explicitly set area
+            # The entity's device matches a device referenced by an area and the entity
+            # has no explicitly set area
             or (
                 not ent_entry.area_id
                 and ent_entry.device_id in selected.referenced_devices
             )
-            # when device matches target device
+            # The entity's device matches a targeted device
             or ent_entry.device_id in selector.device_ids
         ):
             selected.indirectly_referenced.add(ent_entry.entity_id)
@@ -435,7 +437,7 @@ def _load_services_file(hass: HomeAssistant, integration: Integration) -> JSON_T
 def _load_services_files(
     hass: HomeAssistant, integrations: Iterable[Integration]
 ) -> list[JSON_TYPE]:
-    """Load service files for multiple intergrations."""
+    """Load service files for multiple integrations."""
     return [_load_services_file(hass, integration) for integration in integrations]
 
 
@@ -461,10 +463,12 @@ async def async_get_all_descriptions(
     loaded = {}
 
     if missing:
-        integrations = await gather_with_concurrency(
-            MAX_LOAD_CONCURRENTLY,
-            *(async_get_integration(hass, domain) for domain in missing),
-        )
+        ints_or_excs = await async_get_integrations(hass, missing)
+        integrations = [
+            int_or_exc
+            for int_or_exc in ints_or_excs.values()
+            if isinstance(int_or_exc, Integration)
+        ]
 
         contents = await hass.async_add_executor_job(
             _load_services_files, hass, integrations
@@ -485,7 +489,7 @@ async def async_get_all_descriptions(
             # Cache missing descriptions
             if description is None:
                 domain_yaml = loaded[domain]
-                yaml_description = domain_yaml.get(service, {})  # type: ignore
+                yaml_description = domain_yaml.get(service, {})  # type: ignore[union-attr]
 
                 # Don't warn for missing services, because it triggers false
                 # positives for things like scripts, that register as a service
@@ -527,7 +531,7 @@ def async_set_service_schema(
 
 
 @bind_hass
-async def entity_service_call(
+async def entity_service_call(  # noqa: C901
     hass: HomeAssistant,
     platforms: Iterable[EntityPlatform],
     func: str | Callable[..., Any],
@@ -646,6 +650,12 @@ async def entity_service_call(
                 for feature_set in required_features
             )
         ):
+            # If entity explicitly referenced, raise an error
+            if referenced is not None and entity.entity_id in referenced.referenced:
+                raise HomeAssistantError(
+                    f"Entity {entity.entity_id} does not support this service."
+                )
+
             continue
 
         entities.append(entity)
@@ -696,7 +706,7 @@ async def _handle_entity_call(
     entity.async_set_context(context)
 
     if isinstance(func, str):
-        result = hass.async_run_job(partial(getattr(entity, func), **data))  # type: ignore
+        result = hass.async_run_job(partial(getattr(entity, func), **data))  # type: ignore[arg-type]
     else:
         result = hass.async_run_job(func, entity, data)
 
@@ -768,7 +778,7 @@ def verify_domain_control(
                     user_id=call.context.user_id,
                 )
 
-            reg = await hass.helpers.entity_registry.async_get_registry()
+            reg = entity_registry.async_get(hass)
 
             authorized = False
 

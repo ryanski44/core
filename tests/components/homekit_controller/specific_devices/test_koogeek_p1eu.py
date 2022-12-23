@@ -3,7 +3,8 @@
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.const import POWER_WATT
 
-from tests.components.homekit_controller.common import (
+from ..common import (
+    HUB_TEST_ACCESSORY_ID,
     DeviceTestInfo,
     EntityTestInfo,
     assert_devices_and_entities_created,
@@ -20,7 +21,7 @@ async def test_koogeek_p1eu_setup(hass):
     await assert_devices_and_entities_created(
         hass,
         DeviceTestInfo(
-            unique_id="00:00:00:00:00:00",
+            unique_id=HUB_TEST_ACCESSORY_ID,
             name="Koogeek-P1-A00AA0",
             model="P1EU",
             manufacturer="Koogeek",
@@ -30,15 +31,15 @@ async def test_koogeek_p1eu_setup(hass):
             devices=[],
             entities=[
                 EntityTestInfo(
-                    entity_id="switch.koogeek_p1_a00aa0",
-                    friendly_name="Koogeek-P1-A00AA0",
-                    unique_id="homekit-EUCP03190xxxxx48-7",
+                    entity_id="switch.koogeek_p1_a00aa0_outlet",
+                    friendly_name="Koogeek-P1-A00AA0 outlet",
+                    unique_id="00:00:00:00:00:00_1_7",
                     state="off",
                 ),
                 EntityTestInfo(
-                    entity_id="sensor.koogeek_p1_a00aa0_real_time_energy",
-                    friendly_name="Koogeek-P1-A00AA0 - Real Time Energy",
-                    unique_id="homekit-EUCP03190xxxxx48-aid:1-sid:21-cid:22",
+                    entity_id="sensor.koogeek_p1_a00aa0_power",
+                    friendly_name="Koogeek-P1-A00AA0 Power",
+                    unique_id="00:00:00:00:00:00_1_21_22",
                     unit_of_measurement=POWER_WATT,
                     capabilities={"state_class": SensorStateClass.MEASUREMENT},
                     state="5",

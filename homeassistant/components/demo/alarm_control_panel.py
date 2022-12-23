@@ -31,9 +31,9 @@ async def async_setup_platform(
     """Set up the Demo alarm control panel platform."""
     async_add_entities(
         [
-            ManualAlarm(
+            ManualAlarm(  # type:ignore[no-untyped-call]
                 hass,
-                "Alarm",
+                "Security",
                 "1234",
                 None,
                 True,

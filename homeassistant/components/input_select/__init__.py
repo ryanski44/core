@@ -16,9 +16,13 @@ from homeassistant.const import (
     SERVICE_RELOAD,
 )
 from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import collection
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_component import EntityComponent
+from homeassistant.helpers.integration_platform import (
+    async_process_integration_platform_for_component,
+)
 from homeassistant.helpers.restore_state import RestoreEntity
 import homeassistant.helpers.service
 from homeassistant.helpers.storage import Store
@@ -42,19 +46,41 @@ SERVICE_SELECT_LAST = "select_last"
 SERVICE_SET_OPTIONS = "set_options"
 STORAGE_KEY = DOMAIN
 STORAGE_VERSION = 1
+STORAGE_VERSION_MINOR = 2
 
-CREATE_FIELDS = {
+
+def _unique(options: Any) -> Any:
+    try:
+        return vol.Unique()(options)
+    except vol.Invalid as exc:
+        raise HomeAssistantError("Duplicate options are not allowed") from exc
+
+
+STORAGE_FIELDS = {
     vol.Required(CONF_NAME): vol.All(str, vol.Length(min=1)),
-    vol.Required(CONF_OPTIONS): vol.All(cv.ensure_list, vol.Length(min=1), [cv.string]),
+    vol.Required(CONF_OPTIONS): vol.All(
+        cv.ensure_list, vol.Length(min=1), _unique, [cv.string]
+    ),
     vol.Optional(CONF_INITIAL): cv.string,
     vol.Optional(CONF_ICON): cv.icon,
 }
-UPDATE_FIELDS = {
-    vol.Optional(CONF_NAME): cv.string,
-    vol.Optional(CONF_OPTIONS): vol.All(cv.ensure_list, vol.Length(min=1), [cv.string]),
-    vol.Optional(CONF_INITIAL): cv.string,
-    vol.Optional(CONF_ICON): cv.icon,
-}
+
+
+def _remove_duplicates(options: list[str], name: str | None) -> list[str]:
+    """Remove duplicated options."""
+    unique_options = list(dict.fromkeys(options))
+    # This check was added in 2022.3
+    # Reject YAML configured input_select with duplicates from 2022.6
+    if len(unique_options) != len(options):
+        _LOGGER.warning(
+            (
+                "Input select '%s' with options %s had duplicated options, the"
+                " duplicates have been removed"
+            ),
+            name or "<unnamed>",
+            options,
+        )
+    return unique_options
 
 
 def _cv_input_select(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -65,6 +91,7 @@ def _cv_input_select(cfg: dict[str, Any]) -> dict[str, Any]:
         raise vol.Invalid(
             f"initial state {initial} is not part of the options: {','.join(options)}"
         )
+    cfg[CONF_OPTIONS] = _remove_duplicates(options, cfg.get(CONF_NAME))
     return cfg
 
 
@@ -89,20 +116,44 @@ CONFIG_SCHEMA = vol.Schema(
 RELOAD_SERVICE_SCHEMA = vol.Schema({})
 
 
+class InputSelectStore(Store):
+    """Store entity registry data."""
+
+    async def _async_migrate_func(
+        self, old_major_version: int, old_minor_version: int, old_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Migrate to the new version."""
+        if old_major_version == 1:
+            if old_minor_version < 2:
+                for item in old_data["items"]:
+                    options = item[ATTR_OPTIONS]
+                    item[ATTR_OPTIONS] = _remove_duplicates(
+                        options, item.get(CONF_NAME)
+                    )
+        return old_data
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up an input select."""
-    component = EntityComponent(_LOGGER, DOMAIN, hass)
+    component = EntityComponent[InputSelect](_LOGGER, DOMAIN, hass)
+
+    # Process integration platforms right away since
+    # we will create entities before firing EVENT_COMPONENT_LOADED
+    await async_process_integration_platform_for_component(hass, DOMAIN)
+
     id_manager = collection.IDManager()
 
     yaml_collection = collection.YamlCollection(
         logging.getLogger(f"{__name__}.yaml_collection"), id_manager
     )
     collection.sync_entity_lifecycle(
-        hass, DOMAIN, DOMAIN, component, yaml_collection, InputSelect.from_yaml
+        hass, DOMAIN, DOMAIN, component, yaml_collection, InputSelect
     )
 
     storage_collection = InputSelectStorageCollection(
-        Store(hass, STORAGE_VERSION, STORAGE_KEY),
+        InputSelectStore(
+            hass, STORAGE_VERSION, STORAGE_KEY, minor_version=STORAGE_VERSION_MINOR
+        ),
         logging.getLogger(f"{__name__}.storage_collection"),
         id_manager,
     )
@@ -116,7 +167,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     await storage_collection.async_load()
 
     collection.StorageCollectionWebsocket(
-        storage_collection, DOMAIN, DOMAIN, CREATE_FIELDS, UPDATE_FIELDS
+        storage_collection, DOMAIN, DOMAIN, STORAGE_FIELDS, STORAGE_FIELDS
     ).async_setup(hass)
 
     async def reload_service_handler(service_call: ServiceCall) -> None:
@@ -182,12 +233,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 class InputSelectStorageCollection(collection.StorageCollection):
     """Input storage based collection."""
 
-    CREATE_SCHEMA = vol.Schema(vol.All(CREATE_FIELDS, _cv_input_select))
-    UPDATE_SCHEMA = vol.Schema(UPDATE_FIELDS)
+    CREATE_UPDATE_SCHEMA = vol.Schema(vol.All(STORAGE_FIELDS, _cv_input_select))
 
     async def _process_create_data(self, data: dict[str, Any]) -> dict[str, Any]:
         """Validate the config is valid."""
-        return cast(dict[str, Any], self.CREATE_SCHEMA(data))
+        return cast(dict[str, Any], self.CREATE_UPDATE_SCHEMA(data))
 
     @callback
     def _get_suggested_id(self, info: dict[str, Any]) -> str:
@@ -198,15 +248,15 @@ class InputSelectStorageCollection(collection.StorageCollection):
         self, data: dict[str, Any], update_data: dict[str, Any]
     ) -> dict[str, Any]:
         """Return a new updated data object."""
-        update_data = self.UPDATE_SCHEMA(update_data)
-        return _cv_input_select({**data, **update_data})
+        update_data = self.CREATE_UPDATE_SCHEMA(update_data)
+        return {CONF_ID: data[CONF_ID]} | update_data
 
 
-class InputSelect(SelectEntity, RestoreEntity):
+class InputSelect(collection.CollectionEntity, SelectEntity, RestoreEntity):
     """Representation of a select input."""
 
     _attr_should_poll = False
-    editable = True
+    editable: bool
 
     def __init__(self, config: ConfigType) -> None:
         """Initialize a select input."""
@@ -217,8 +267,15 @@ class InputSelect(SelectEntity, RestoreEntity):
         self._attr_unique_id = config[CONF_ID]
 
     @classmethod
+    def from_storage(cls, config: ConfigType) -> InputSelect:
+        """Return entity instance initialized from storage."""
+        input_select = cls(config)
+        input_select.editable = True
+        return input_select
+
+    @classmethod
     def from_yaml(cls, config: ConfigType) -> InputSelect:
-        """Return entity instance initialized from yaml storage."""
+        """Return entity instance initialized from yaml."""
         input_select = cls(config)
         input_select.entity_id = f"{DOMAIN}.{config[CONF_ID]}"
         input_select.editable = False
@@ -301,6 +358,10 @@ class InputSelect(SelectEntity, RestoreEntity):
 
     async def async_set_options(self, options: list[str]) -> None:
         """Set options."""
+        unique_options = list(dict.fromkeys(options))
+        if len(unique_options) != len(options):
+            raise HomeAssistantError(f"Duplicated options: {options}")
+
         self._attr_options = options
 
         if self.current_option not in self.options:

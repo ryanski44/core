@@ -65,7 +65,7 @@ class BanSensor(SensorEntity):
         self.last_ban = None
         self.log_parser = log_parser
         self.log_parser.ip_regex[self.jail] = re.compile(
-            fr"\[{re.escape(self.jail)}\]\s*(Ban|Unban) (.*)"
+            rf"\[{re.escape(self.jail)}\]\s*(Ban|Unban) (.*)"
         )
         _LOGGER.debug("Setting up jail %s", self.jail)
 
@@ -84,7 +84,7 @@ class BanSensor(SensorEntity):
         """Return the most recently banned IP Address."""
         return self.last_ban
 
-    def update(self):
+    def update(self) -> None:
         """Update the list of banned ips."""
         self.log_parser.read_log(self.jail)
 

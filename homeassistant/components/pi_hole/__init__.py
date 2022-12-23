@@ -11,13 +11,13 @@ from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import (
     CONF_API_KEY,
     CONF_HOST,
+    CONF_LOCATION,
     CONF_NAME,
     CONF_SSL,
     CONF_VERIFY_SSL,
     Platform,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity import DeviceInfo
@@ -29,7 +29,6 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from .const import (
-    CONF_LOCATION,
     CONF_STATISTICS_ONLY,
     DATA_KEY_API,
     DATA_KEY_COORDINATOR,
@@ -99,21 +98,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _LOGGER.debug("Setting up %s integration with host %s", DOMAIN, host)
 
-    try:
-        session = async_get_clientsession(hass, verify_tls)
-        api = Hole(
-            host,
-            session,
-            location=location,
-            tls=use_tls,
-            api_token=api_key,
-        )
-        await api.get_data()
-        await api.get_versions()
-
-    except HoleError as ex:
-        _LOGGER.warning("Failed to connect: %s", ex)
-        raise ConfigEntryNotReady from ex
+    session = async_get_clientsession(hass, verify_tls)
+    api = Hole(
+        host,
+        session,
+        location=location,
+        tls=use_tls,
+        api_token=api_key,
+    )
 
     async def async_update_data() -> None:
         """Fetch data from API endpoint."""
@@ -135,7 +127,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         DATA_KEY_COORDINATOR: coordinator,
     }
 
-    hass.config_entries.async_setup_platforms(entry, _async_platforms(entry))
+    await coordinator.async_config_entry_first_refresh()
+
+    await hass.config_entries.async_forward_entry_setups(entry, _async_platforms(entry))
 
     return True
 
@@ -153,7 +147,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 @callback
 def _async_platforms(entry: ConfigEntry) -> list[Platform]:
     """Return platforms to be loaded / unloaded."""
-    platforms = [Platform.BINARY_SENSOR, Platform.SENSOR]
+    platforms = [Platform.BINARY_SENSOR, Platform.UPDATE, Platform.SENSOR]
     if not entry.data[CONF_STATISTICS_ONLY]:
         platforms.append(Platform.SWITCH)
     return platforms

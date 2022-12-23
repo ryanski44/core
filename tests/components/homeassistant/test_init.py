@@ -179,6 +179,7 @@ class TestComponentsCore(unittest.TestCase):
             config.YAML_CONFIG_FILE: yaml.dump(
                 {
                     ha.DOMAIN: {
+                        "country": "SE",  # To avoid creating issue country_not_configured
                         "latitude": 10,
                         "longitude": 20,
                         "customize": {"test.Entity": {"hello": "world"}},
@@ -280,7 +281,7 @@ async def test_entity_update(hass):
     await async_setup_component(hass, "homeassistant", {})
 
     with patch(
-        "homeassistant.helpers.entity_component.async_update_entity",
+        "homeassistant.components.homeassistant.async_update_entity",
         return_value=None,
     ) as mock_update:
         await hass.services.async_call(

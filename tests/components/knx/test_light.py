@@ -11,16 +11,10 @@ from homeassistant.components.knx.schema import LightSchema
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_NAME,
-    ATTR_COLOR_TEMP,
+    ATTR_COLOR_TEMP_KELVIN,
     ATTR_HS_COLOR,
     ATTR_RGBW_COLOR,
-    COLOR_MODE_BRIGHTNESS,
-    COLOR_MODE_COLOR_TEMP,
-    COLOR_MODE_HS,
-    COLOR_MODE_ONOFF,
-    COLOR_MODE_RGB,
-    COLOR_MODE_RGBW,
-    COLOR_MODE_XY,
+    ColorMode,
 )
 from homeassistant.const import CONF_NAME, STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant
@@ -56,7 +50,7 @@ async def test_light_simple(hass: HomeAssistant, knx: KNXTestKit):
     knx.assert_state(
         "light.test",
         STATE_ON,
-        color_mode=COLOR_MODE_ONOFF,
+        color_mode=ColorMode.ONOFF,
     )
     # turn off light
     await hass.services.async_call(
@@ -115,7 +109,7 @@ async def test_light_brightness(hass: HomeAssistant, knx: KNXTestKit):
         "light.test",
         STATE_ON,
         brightness=80,
-        color_mode=COLOR_MODE_BRIGHTNESS,
+        color_mode=ColorMode.BRIGHTNESS,
     )
     # receive brightness changes from KNX
     await knx.receive_write(test_brightness_state, (255,))
@@ -170,21 +164,27 @@ async def test_light_color_temp_absolute(hass: HomeAssistant, knx: KNXTestKit):
         "light.test",
         STATE_ON,
         brightness=255,
-        color_mode=COLOR_MODE_COLOR_TEMP,
+        color_mode=ColorMode.COLOR_TEMP,
         color_temp=370,
+        color_temp_kelvin=2700,
     )
     # change color temperature from HA
     await hass.services.async_call(
         "light",
         "turn_on",
-        {"entity_id": "light.test", ATTR_COLOR_TEMP: 250},  # 4000 Kelvin - 0x0FA0
+        {"entity_id": "light.test", ATTR_COLOR_TEMP_KELVIN: 4000},  # 4000 - 0x0FA0
         blocking=True,
     )
     await knx.assert_write(test_ct, (0x0F, 0xA0))
     knx.assert_state("light.test", STATE_ON, color_temp=250)
     # change color temperature from KNX
     await knx.receive_write(test_ct_state, (0x17, 0x70))  # 6000 Kelvin - 166 Mired
-    knx.assert_state("light.test", STATE_ON, color_temp=166)
+    knx.assert_state(
+        "light.test",
+        STATE_ON,
+        color_temp=166,
+        color_temp_kelvin=6000,
+    )
 
 
 async def test_light_color_temp_relative(hass: HomeAssistant, knx: KNXTestKit):
@@ -226,21 +226,35 @@ async def test_light_color_temp_relative(hass: HomeAssistant, knx: KNXTestKit):
         "light.test",
         STATE_ON,
         brightness=255,
-        color_mode=COLOR_MODE_COLOR_TEMP,
+        color_mode=ColorMode.COLOR_TEMP,
         color_temp=250,
+        color_temp_kelvin=4000,
     )
     # change color temperature from HA
     await hass.services.async_call(
         "light",
         "turn_on",
-        {"entity_id": "light.test", ATTR_COLOR_TEMP: 300},  # 3333 Kelvin - 33 % - 0x54
+        {
+            "entity_id": "light.test",
+            ATTR_COLOR_TEMP_KELVIN: 3333,  # 3333 Kelvin - 33.3 % - 0x55
+        },
         blocking=True,
     )
-    await knx.assert_write(test_ct, (0x54,))
-    knx.assert_state("light.test", STATE_ON, color_temp=300)
+    await knx.assert_write(test_ct, (0x55,))
+    knx.assert_state(
+        "light.test",
+        STATE_ON,
+        color_temp=300,
+        color_temp_kelvin=3333,
+    )
     # change color temperature from KNX
-    await knx.receive_write(test_ct_state, (0xE6,))  # 3900 Kelvin - 90 % - 256 Mired
-    knx.assert_state("light.test", STATE_ON, color_temp=256)
+    await knx.receive_write(test_ct_state, (0xE6,))  # 3901 Kelvin - 90.1 % - 256 Mired
+    knx.assert_state(
+        "light.test",
+        STATE_ON,
+        color_temp=256,
+        color_temp_kelvin=3901,
+    )
 
 
 async def test_light_hs_color(hass: HomeAssistant, knx: KNXTestKit):
@@ -285,7 +299,7 @@ async def test_light_hs_color(hass: HomeAssistant, knx: KNXTestKit):
         "light.test",
         STATE_ON,
         brightness=255,
-        color_mode=COLOR_MODE_HS,
+        color_mode=ColorMode.HS,
         hs_color=(360, 100),
     )
     # change color from HA - only hue
@@ -360,7 +374,7 @@ async def test_light_xyy_color(hass: HomeAssistant, knx: KNXTestKit):
         "light.test",
         STATE_ON,
         brightness=204,
-        color_mode=COLOR_MODE_XY,
+        color_mode=ColorMode.XY,
         xy_color=(0.8, 0.8),
     )
     # change color and brightness from HA
@@ -440,7 +454,7 @@ async def test_light_xyy_color_with_brightness(hass: HomeAssistant, knx: KNXTest
         "light.test",
         STATE_ON,
         brightness=255,  # brightness form xyy_color ignored when extra brightness GA is used
-        color_mode=COLOR_MODE_XY,
+        color_mode=ColorMode.XY,
         xy_color=(0.8, 0.8),
     )
     # change color from HA
@@ -526,7 +540,7 @@ async def test_light_rgb_individual(hass: HomeAssistant, knx: KNXTestKit):
         "light.test",
         STATE_ON,
         brightness=255,
-        color_mode=COLOR_MODE_RGB,
+        color_mode=ColorMode.RGB,
         rgb_color=(255, 255, 255),
     )
     # change color from HA
@@ -680,7 +694,7 @@ async def test_light_rgbw_individual(hass: HomeAssistant, knx: KNXTestKit):
         "light.test",
         STATE_ON,
         brightness=255,
-        color_mode=COLOR_MODE_RGBW,
+        color_mode=ColorMode.RGBW,
         rgbw_color=(0, 0, 0, 255),
     )
     # change color from HA
@@ -835,7 +849,7 @@ async def test_light_rgb(hass: HomeAssistant, knx: KNXTestKit):
         "light.test",
         STATE_ON,
         brightness=255,
-        color_mode=COLOR_MODE_RGB,
+        color_mode=ColorMode.RGB,
         rgb_color=(255, 255, 255),
     )
     # change color from HA
@@ -943,7 +957,7 @@ async def test_light_rgbw(hass: HomeAssistant, knx: KNXTestKit):
         "light.test",
         STATE_ON,
         brightness=255,
-        color_mode=COLOR_MODE_RGBW,
+        color_mode=ColorMode.RGBW,
         rgbw_color=(255, 101, 102, 103),
     )
     # change color from HA
@@ -1060,7 +1074,7 @@ async def test_light_rgbw_brightness(hass: HomeAssistant, knx: KNXTestKit):
         "light.test",
         STATE_ON,
         brightness=255,
-        color_mode=COLOR_MODE_RGBW,
+        color_mode=ColorMode.RGBW,
         rgbw_color=(255, 101, 102, 103),
     )
     # change color from HA

@@ -19,6 +19,7 @@ from .const import (
     CONF_HOSTNAME,
     CONF_IPV4,
     CONF_IPV6,
+    CONF_IPV6_V4,
     CONF_RESOLVER,
     CONF_RESOLVER_IPV6,
     DEFAULT_HOSTNAME,
@@ -31,6 +32,13 @@ from .const import (
 DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOSTNAME, default=DEFAULT_HOSTNAME): cv.string,
+    }
+)
+DATA_SCHEMA_ADV = vol.Schema(
+    {
+        vol.Required(CONF_HOSTNAME, default=DEFAULT_HOSTNAME): cv.string,
+        vol.Optional(CONF_RESOLVER, default=DEFAULT_RESOLVER): cv.string,
+        vol.Optional(CONF_RESOLVER_IPV6, default=DEFAULT_RESOLVER_IPV6): cv.string,
     }
 )
 
@@ -54,10 +62,12 @@ async def async_validate_hostname(
     tasks = await asyncio.gather(
         async_check(hostname, resolver_ipv4, "A"),
         async_check(hostname, resolver_ipv6, "AAAA"),
+        async_check(hostname, resolver_ipv4, "AAAA"),
     )
 
     result[CONF_IPV4] = tasks[0]
     result[CONF_IPV6] = tasks[1]
+    result[CONF_IPV6_V4] = tasks[2]
 
     return result
 
@@ -75,14 +85,6 @@ class DnsIPConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Return Option handler."""
         return DnsIPOptionsFlowHandler(config_entry)
 
-    async def async_step_import(self, config: dict[str, Any]) -> FlowResult:
-        """Import a configuration from config.yaml."""
-
-        hostname = config.get(CONF_HOSTNAME, DEFAULT_HOSTNAME)
-        self._async_abort_entries_match({CONF_HOSTNAME: hostname})
-        config[CONF_HOSTNAME] = hostname
-        return await self.async_step_user(user_input=config)
-
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -94,12 +96,20 @@ class DnsIPConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             hostname = user_input[CONF_HOSTNAME]
             name = DEFAULT_NAME if hostname == DEFAULT_HOSTNAME else hostname
-            resolver = DEFAULT_RESOLVER
-            resolver_ipv6 = DEFAULT_RESOLVER_IPV6
+            resolver = user_input.get(CONF_RESOLVER, DEFAULT_RESOLVER)
+            resolver_ipv6 = user_input.get(CONF_RESOLVER_IPV6, DEFAULT_RESOLVER_IPV6)
 
             validate = await async_validate_hostname(hostname, resolver, resolver_ipv6)
 
-            if not validate[CONF_IPV4] and not validate[CONF_IPV6]:
+            set_resolver = resolver
+            if validate[CONF_IPV6]:
+                set_resolver = resolver_ipv6
+
+            if (
+                not validate[CONF_IPV4]
+                and not validate[CONF_IPV6]
+                and not validate[CONF_IPV6_V4]
+            ):
                 errors["base"] = "invalid_hostname"
             else:
                 await self.async_set_unique_id(hostname)
@@ -110,13 +120,21 @@ class DnsIPConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data={
                         CONF_HOSTNAME: hostname,
                         CONF_NAME: name,
-                        CONF_RESOLVER: resolver,
-                        CONF_RESOLVER_IPV6: resolver_ipv6,
                         CONF_IPV4: validate[CONF_IPV4],
-                        CONF_IPV6: validate[CONF_IPV6],
+                        CONF_IPV6: validate[CONF_IPV6] or validate[CONF_IPV6_V4],
+                    },
+                    options={
+                        CONF_RESOLVER: resolver,
+                        CONF_RESOLVER_IPV6: set_resolver,
                     },
                 )
 
+        if self.show_advanced_options is True:
+            return self.async_show_form(
+                step_id="user",
+                data_schema=DATA_SCHEMA_ADV,
+                errors=errors,
+            )
         return self.async_show_form(
             step_id="user",
             data_schema=DATA_SCHEMA,
