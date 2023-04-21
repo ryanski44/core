@@ -216,7 +216,7 @@ class AreaRegistry:
         if not new_values:
             return old
 
-        new = self.areas[area_id] = attr.evolve(old, **new_values)
+        new = self.areas[area_id] = attr.evolve(old, **new_values)  # type: ignore[arg-type]
         if normalized_name is not None:
             self._normalized_name_area_idx[
                 normalized_name
@@ -289,7 +289,8 @@ async def async_get_registry(hass: HomeAssistant) -> AreaRegistry:
     This is deprecated and will be removed in the future. Use async_get instead.
     """
     report(
-        "uses deprecated `async_get_registry` to access area registry, use async_get instead"
+        "uses deprecated `async_get_registry` to access area registry, use async_get"
+        " instead"
     )
     return async_get(hass)
 

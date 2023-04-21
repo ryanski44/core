@@ -1,4 +1,5 @@
 """Test configuration for the ZHA component."""
+from collections.abc import Callable
 import itertools
 import time
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
@@ -84,6 +85,7 @@ async def config_entry_fixture(hass):
             zha_const.CUSTOM_CONFIGURATION: {
                 zha_const.ZHA_OPTIONS: {
                     zha_const.CONF_ENABLE_ENHANCED_LIGHT_TRANSITION: True,
+                    zha_const.CONF_GROUP_MEMBERS_ASSUME_STATE: False,
                 },
                 zha_const.ZHA_ALARM_OPTIONS: {
                     zha_const.CONF_ALARM_ARM_REQUIRES_CODE: False,
@@ -120,19 +122,19 @@ def setup_zha(hass, config_entry, zigpy_app_controller):
 
 
 @pytest.fixture
-def channel():
-    """Channel mock factory fixture."""
+def cluster_handler():
+    """ClusterHandler mock factory fixture."""
 
-    def channel(name: str, cluster_id: int, endpoint_id: int = 1):
+    def cluster_handler(name: str, cluster_id: int, endpoint_id: int = 1):
         ch = MagicMock()
         ch.name = name
-        ch.generic_id = f"channel_0x{cluster_id:04x}"
+        ch.generic_id = f"cluster_handler_0x{cluster_id:04x}"
         ch.id = f"{endpoint_id}:0x{cluster_id:04x}"
         ch.async_configure = AsyncMock()
         ch.async_initialize = AsyncMock()
         return ch
 
-    return channel
+    return cluster_handler
 
 
 @pytest.fixture
@@ -161,7 +163,7 @@ def zigpy_device_mock(zigpy_app_controller):
         for epid, ep in endpoints.items():
             endpoint = device.add_endpoint(epid)
             endpoint.device_type = ep[SIG_EP_TYPE]
-            endpoint.profile_id = ep.get(SIG_EP_PROFILE)
+            endpoint.profile_id = ep.get(SIG_EP_PROFILE, 0x0104)
             endpoint.request = AsyncMock(return_value=[0])
 
             for cluster_id in ep.get(SIG_EP_INPUT, []):
@@ -169,6 +171,8 @@ def zigpy_device_mock(zigpy_app_controller):
 
             for cluster_id in ep.get(SIG_EP_OUTPUT, []):
                 endpoint.add_output_cluster(cluster_id)
+
+        device.status = zigpy.device.Status.ENDPOINTS_INIT
 
         if quirk:
             device = quirk(zigpy_app_controller, device.ieee, device.nwk, device)
@@ -227,8 +231,10 @@ def zha_device_joined_restored(request):
 
 
 @pytest.fixture
-def zha_device_mock(hass, zigpy_device_mock):
-    """Return a zha Device factory."""
+def zha_device_mock(
+    hass, zigpy_device_mock
+) -> Callable[..., zha_core_device.ZHADevice]:
+    """Return a ZHA Device factory."""
 
     def _zha_device(
         endpoints=None,
@@ -237,7 +243,7 @@ def zha_device_mock(hass, zigpy_device_mock):
         model="mock model",
         node_desc=b"\x02@\x807\x10\x7fd\x00\x00*d\x00\x00",
         patch_cluster=True,
-    ):
+    ) -> zha_core_device.ZHADevice:
         if endpoints is None:
             endpoints = {
                 1: {
