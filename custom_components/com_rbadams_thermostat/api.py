@@ -6,6 +6,8 @@ import socket
 import aiohttp
 import async_timeout
 
+from urllib.parse import urlencode
+
 TIMEOUT = 10
 
 
@@ -38,6 +40,61 @@ class ThermostatApiClient:
             url,
             data=value,
             headers=headers,
+        )
+    
+    async def async_play(self) -> None:
+        url = f"http://{self._host}/api/pandora/play"
+        headers = head
+        return await self.api_wrapper(
+            "get",
+            url,
+            headers=headers
+        )
+    
+    async def async_pause(self) -> None:
+        url = f"http://{self._host}/api/pandora/pause"
+        headers = head
+        return await self.api_wrapper(
+            "get",
+            url,
+            headers=headers
+        )
+    
+    async def async_on(self) -> None:
+        url = f"http://{self._host}/api/pandora/on"
+        headers = head
+        return await self.api_wrapper(
+            "get",
+            url,
+            headers=headers
+        )
+    
+    async def async_off(self) -> None:
+        url = f"http://{self._host}/api/pandora/off"
+        headers = head
+        return await self.api_wrapper(
+            "get",
+            url,
+            headers=headers
+        )   
+    
+    async def async_next(self) -> None:
+        url = f"http://{self._host}/api/pandora/next"
+        headers = head
+        return await self.api_wrapper(
+            "get",
+            url,
+            headers=headers
+        )
+    
+    async def async_changestation(self, stationName : str) -> None:
+        myqs = { "stationName": stationName }
+        url = f"http://{self._host}/api/pandora/changestation?{urlencode(myqs)}"
+        headers = head
+        return await self.api_wrapper(
+            "get",
+            url,
+            headers=headers
         )
 
     async def api_wrapper(

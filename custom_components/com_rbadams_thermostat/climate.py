@@ -14,8 +14,14 @@ from homeassistant.components.climate.const import (
     HVAC_MODE_AUTO,
     SUPPORT_TARGET_TEMPERATURE_RANGE,
 )
+
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PRECISION_TENTHS, PRECISION_WHOLE, TEMP_FAHRENHEIT
+from homeassistant.const import (
+    PRECISION_TENTHS, 
+    PRECISION_WHOLE, 
+    TEMP_FAHRENHEIT
+)
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
