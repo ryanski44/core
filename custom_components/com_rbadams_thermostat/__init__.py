@@ -1,4 +1,5 @@
 """The HTTP Thermostat integration."""
+
 from __future__ import annotations
 
 import asyncio
@@ -94,8 +95,6 @@ class ThermostatUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """Get Status."""
         try:
-            status = await self.api.async_get_status()
-            response = status
-            return response
+            return await self.api.async_get_status()
         except Exception as exception:
             raise UpdateFailed() from exception

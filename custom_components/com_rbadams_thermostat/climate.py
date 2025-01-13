@@ -1,27 +1,20 @@
 """Platform for light integration."""
+
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
-    CURRENT_HVAC_COOL,
-    CURRENT_HVAC_HEAT,
-    CURRENT_HVAC_IDLE,
-    CURRENT_HVAC_OFF,
-    HVAC_MODE_AUTO,
-    SUPPORT_TARGET_TEMPERATURE_RANGE,
+    ClimateEntityFeature,
+    HVACAction,
+    HVACMode,
 )
-
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    PRECISION_TENTHS, 
-    PRECISION_WHOLE, 
-    TEMP_FAHRENHEIT
-)
-
+from homeassistant.const import PRECISION_TENTHS, PRECISION_WHOLE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -72,7 +65,7 @@ class HTTPThermostat(CoordinatorEntity, ClimateEntity):
     @property
     def temperature_unit(self):
         """Return temperature unit."""
-        return TEMP_FAHRENHEIT
+        return UnitOfTemperature.FAHRENHEIT
 
     @property
     def target_temperature_step(self) -> float:
@@ -80,14 +73,14 @@ class HTTPThermostat(CoordinatorEntity, ClimateEntity):
         return PRECISION_WHOLE
 
     @property
-    def hvac_modes(self):
+    def hvac_modes(self) -> list[HVACMode]:
         """Return hvac modes."""
-        return [HVAC_MODE_AUTO]
+        return [HVACMode.AUTO]
 
     @property
-    def supported_features(self):
+    def supported_features(self) -> ClimateEntityFeature:
         """Return supported features."""
-        return SUPPORT_TARGET_TEMPERATURE_RANGE
+        return ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
 
     @property
     def name(self) -> str:
@@ -95,30 +88,30 @@ class HTTPThermostat(CoordinatorEntity, ClimateEntity):
         return f"{DEFAULT_NAME}_{CLIMATE}"
 
     @property
-    def hvac_mode(self) -> str:
+    def hvac_mode(self) -> HVACMode:
         """Return hvac operation ie. heat, cool mode."""
-        return HVAC_MODE_AUTO
+        return HVACMode.AUTO
 
     @property
-    def hvac_action(self) -> str:
+    def hvac_action(self) -> HVACAction | None:
         """Return hvac action."""
         data = self.coordinator.data
         if str(data["heat"]).lower() == "true":
-            return CURRENT_HVAC_HEAT
+            return HVACAction.HEATING
         if str(data["cool"]).lower() == "true":
-            return CURRENT_HVAC_COOL
+            return HVACAction.COOLING
         if str(data["fan"]).lower() == "true":
-            return CURRENT_HVAC_IDLE
-        return CURRENT_HVAC_OFF
+            return HVACAction.FAN
+        return HVACAction.OFF
 
     @property
     def icon(self) -> str:
         """Return nice icon for heater."""
-        if self.hvac_action == CURRENT_HVAC_HEAT:
+        if self.hvac_action == HVACAction.HEATING:
             return "mdi:fire"
-        if self.hvac_action == CURRENT_HVAC_COOL:
+        if self.hvac_action == HVACAction.COOLING:
             return "mdi:air-conditioner"
-        if self.hvac_action == CURRENT_HVAC_IDLE:
+        if self.hvac_action == HVACAction.FAN:
             return "mdi:fan"
         return "mdi:radiator-off"
 

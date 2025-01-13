@@ -1,27 +1,20 @@
 """Platform for light integration."""
+
 from __future__ import annotations
 
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
-    MediaType
+    MediaType,
 )
-
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    PRECISION_TENTHS, 
-    PRECISION_WHOLE, 
-    TEMP_FAHRENHEIT
-)
-
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import ThermostatUpdateCoordinator
-from .const import MEDIA_PLAYER, DEFAULT_NAME, DOMAIN
+from .const import DEFAULT_NAME, DOMAIN, MEDIA_PLAYER
 
 # Import the device class from the component that you want to support
 # import homeassistant.helpers.config_validation as cv
@@ -55,26 +48,26 @@ class PandoraMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             "OFF": MediaPlayerState.OFF,
             "ON": MediaPlayerState.ON,
             "PLAYING": MediaPlayerState.PLAYING,
-            "PAUSED": MediaPlayerState.PAUSED
+            "PAUSED": MediaPlayerState.PAUSED,
         }.get(state, MediaPlayerState.OFF)
 
     @property
     def supported_features(self):
         """Flag media player features that are supported"""
         return (
-            MediaPlayerEntityFeature.PLAY | 
-            MediaPlayerEntityFeature.PAUSE | 
-            MediaPlayerEntityFeature.NEXT_TRACK | 
-            MediaPlayerEntityFeature.SELECT_SOURCE | 
-            MediaPlayerEntityFeature.TURN_OFF | 
-            MediaPlayerEntityFeature.TURN_ON
+            MediaPlayerEntityFeature.PLAY
+            | MediaPlayerEntityFeature.PAUSE
+            | MediaPlayerEntityFeature.NEXT_TRACK
+            | MediaPlayerEntityFeature.SELECT_SOURCE
+            | MediaPlayerEntityFeature.TURN_OFF
+            | MediaPlayerEntityFeature.TURN_ON
         )
-    
+
     @property
     def media_content_type(self) -> MediaType | None:
         """Return the content type of currently playing media."""
         return MediaType.CHANNEL
-    
+
     @property
     def media_title(self) -> str | None:
         """Title of current playing media."""
@@ -89,12 +82,12 @@ class PandoraMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     def media_album_name(self) -> str | None:
         """Album of current playing media, music track only."""
         return self.coordinator.data["pandora"]["currentAlbum"]
-    
+
     @property
     def source_list(self):
         """List of available input sources."""
         return self.coordinator.data["pandora"]["stationList"]
-    
+
     async def async_media_play(self) -> None:
         """Send play command."""
         await self.api.async_play()

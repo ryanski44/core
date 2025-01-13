@@ -1,12 +1,11 @@
 """Sample API Client."""
+
 import asyncio
 import logging
 import socket
+from urllib.parse import urlencode
 
 import aiohttp
-import async_timeout
-
-from urllib.parse import urlencode
 
 TIMEOUT = 10
 
@@ -41,74 +40,50 @@ class ThermostatApiClient:
             data=value,
             headers=headers,
         )
-    
+
     async def async_play(self) -> None:
         url = f"http://{self._host}/api/pandora/play"
         headers = head
-        return await self.api_wrapper(
-            "get",
-            url,
-            headers=headers
-        )
-    
+        return await self.api_wrapper("get", url, headers=headers)
+
     async def async_pause(self) -> None:
         url = f"http://{self._host}/api/pandora/pause"
         headers = head
-        return await self.api_wrapper(
-            "get",
-            url,
-            headers=headers
-        )
-    
+        return await self.api_wrapper("get", url, headers=headers)
+
     async def async_on(self) -> None:
         url = f"http://{self._host}/api/pandora/on"
         headers = head
-        return await self.api_wrapper(
-            "get",
-            url,
-            headers=headers
-        )
-    
+        return await self.api_wrapper("get", url, headers=headers)
+
     async def async_off(self) -> None:
         url = f"http://{self._host}/api/pandora/off"
         headers = head
-        return await self.api_wrapper(
-            "get",
-            url,
-            headers=headers
-        )   
-    
+        return await self.api_wrapper("get", url, headers=headers)
+
     async def async_next(self) -> None:
         url = f"http://{self._host}/api/pandora/next"
         headers = head
-        return await self.api_wrapper(
-            "get",
-            url,
-            headers=headers
-        )
-    
-    async def async_changestation(self, stationName : str) -> None:
-        myqs = { "stationName": stationName }
+        return await self.api_wrapper("get", url, headers=headers)
+
+    async def async_changestation(self, stationName: str) -> None:
+        myqs = {"stationName": stationName}
         url = f"http://{self._host}/api/pandora/changestation?{urlencode(myqs)}"
         headers = head
-        return await self.api_wrapper(
-            "get",
-            url,
-            headers=headers
-        )
+        return await self.api_wrapper("get", url, headers=headers)
 
     async def api_wrapper(
         self, method: str, url: str, data: dict = {}, headers: dict = {}
     ) -> dict:
         """Get information from the API."""
         try:
-            async with async_timeout.timeout(TIMEOUT):
+            async with asyncio.timeout(TIMEOUT):
                 if method == "get":
                     response = await self._session.get(url, headers=headers, ssl=False)
                     _LOGGER.info(await response.json())
                     return await response.json()
 
-                elif method == "put":
+                if method == "put":
                     await self._session.put(url, headers=headers, json=data, ssl=False)
 
                 elif method == "patch":
@@ -122,7 +97,7 @@ class ThermostatApiClient:
                     )
                     return await response.json()
 
-        except asyncio.TimeoutError as exception:
+        except TimeoutError as exception:
             _LOGGER.error(
                 "Timeout error fetching information from %s - %s",
                 url,
