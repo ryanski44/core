@@ -9,10 +9,10 @@ from pyobihai import PyObihai
 import voluptuous as vol
 
 from homeassistant.components import dhcp
-from homeassistant.config_entries import ConfigFlow
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.device_registry import format_mac
 
 from .connectivity import validate_auth
 from .const import DEFAULT_PASSWORD, DEFAULT_USERNAME, DOMAIN
@@ -58,7 +58,7 @@ class ObihaiFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""
 
         errors: dict[str, str] = {}
@@ -77,7 +77,7 @@ class ObihaiFlowHandler(ConfigFlow, domain=DOMAIN):
                     device_mac = await self.hass.async_add_executor_job(
                         pyobihai.get_device_mac
                     )
-                    await self.async_set_unique_id(device_mac)
+                    await self.async_set_unique_id(format_mac(device_mac))
                     self._abort_if_unique_id_configured()
 
                     return self.async_create_entry(
@@ -93,7 +93,9 @@ class ObihaiFlowHandler(ConfigFlow, domain=DOMAIN):
             data_schema=self.add_suggested_values_to_schema(data_schema, user_input),
         )
 
-    async def async_step_dhcp(self, discovery_info: dhcp.DhcpServiceInfo) -> FlowResult:
+    async def async_step_dhcp(
+        self, discovery_info: dhcp.DhcpServiceInfo
+    ) -> ConfigFlowResult:
         """Prepare configuration for a DHCP discovered Obihai."""
 
         self._dhcp_discovery_info = discovery_info
@@ -101,10 +103,10 @@ class ObihaiFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_dhcp_confirm(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Attempt to confirm."""
         assert self._dhcp_discovery_info
-        await self.async_set_unique_id(self._dhcp_discovery_info.macaddress)
+        await self.async_set_unique_id(format_mac(self._dhcp_discovery_info.macaddress))
         self._abort_if_unique_id_configured()
 
         if user_input is None:

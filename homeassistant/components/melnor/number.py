@@ -19,26 +19,16 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .models import (
-    MelnorDataUpdateCoordinator,
-    MelnorZoneEntity,
-    get_entities_for_valves,
-)
+from .coordinator import MelnorDataUpdateCoordinator
+from .entity import MelnorZoneEntity, get_entities_for_valves
 
 
-@dataclass
-class MelnorZoneNumberEntityDescriptionMixin:
-    """Mixin for required keys."""
+@dataclass(frozen=True, kw_only=True)
+class MelnorZoneNumberEntityDescription(NumberEntityDescription):
+    """Describes Melnor number entity."""
 
     set_num_fn: Callable[[Valve, int], Coroutine[Any, Any, None]]
     state_fn: Callable[[Valve], Any]
-
-
-@dataclass
-class MelnorZoneNumberEntityDescription(
-    NumberEntityDescription, MelnorZoneNumberEntityDescriptionMixin
-):
-    """Describes Melnor number entity."""
 
 
 ZONE_ENTITY_DESCRIPTIONS: list[MelnorZoneNumberEntityDescription] = [
@@ -46,9 +36,8 @@ ZONE_ENTITY_DESCRIPTIONS: list[MelnorZoneNumberEntityDescription] = [
         entity_category=EntityCategory.CONFIG,
         native_max_value=360,
         native_min_value=1,
-        icon="mdi:timer-cog-outline",
         key="manual_minutes",
-        name="Manual Duration",
+        translation_key="manual_minutes",
         native_unit_of_measurement=UnitOfTime.MINUTES,
         set_num_fn=lambda valve, value: valve.set_manual_watering_minutes(value),
         state_fn=lambda valve: valve.manual_watering_minutes,
@@ -57,9 +46,8 @@ ZONE_ENTITY_DESCRIPTIONS: list[MelnorZoneNumberEntityDescription] = [
         entity_category=EntityCategory.CONFIG,
         native_max_value=168,
         native_min_value=1,
-        icon="mdi:calendar-refresh-outline",
         key="frequency_interval_hours",
-        name="Schedule Interval",
+        translation_key="frequency_interval_hours",
         native_unit_of_measurement=UnitOfTime.HOURS,
         set_num_fn=lambda valve, value: valve.set_frequency_interval_hours(value),
         state_fn=lambda valve: valve.frequency.interval_hours,
@@ -68,9 +56,8 @@ ZONE_ENTITY_DESCRIPTIONS: list[MelnorZoneNumberEntityDescription] = [
         entity_category=EntityCategory.CONFIG,
         native_max_value=360,
         native_min_value=1,
-        icon="mdi:timer-outline",
         key="frequency_duration_minutes",
-        name="Schedule Duration",
+        translation_key="frequency_duration_minutes",
         native_unit_of_measurement=UnitOfTime.MINUTES,
         set_num_fn=lambda valve, value: valve.set_frequency_duration_minutes(value),
         state_fn=lambda valve: valve.frequency.duration_minutes,

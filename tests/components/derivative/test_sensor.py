@@ -1,14 +1,21 @@
 """The tests for the derivative sensor platform."""
+
 from datetime import timedelta
 from math import sin
 import random
+from typing import Any
 
 from freezegun import freeze_time
 
+from homeassistant.components.derivative.const import DOMAIN
+from homeassistant.components.sensor import ATTR_STATE_CLASS, SensorStateClass
 from homeassistant.const import UnitOfPower, UnitOfTime
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.setup import async_setup_component
 import homeassistant.util.dt as dt_util
+
+from tests.common import MockConfigEntry
 
 
 async def test_state(hass: HomeAssistant) -> None:
@@ -44,7 +51,9 @@ async def test_state(hass: HomeAssistant) -> None:
     assert state.attributes.get("unit_of_measurement") == "kW"
 
 
-async def _setup_sensor(hass, config):
+async def _setup_sensor(
+    hass: HomeAssistant, config: dict[str, Any]
+) -> tuple[dict[str, Any], str]:
     default_config = {
         "platform": "derivative",
         "name": "power",
@@ -62,14 +71,20 @@ async def _setup_sensor(hass, config):
     return config, entity_id
 
 
-async def setup_tests(hass, config, times, values, expected_state):
+async def setup_tests(
+    hass: HomeAssistant,
+    config: dict[str, Any],
+    times: list[int],
+    values: list[float],
+    expected_state: float,
+) -> State:
     """Test derivative sensor state."""
     config, entity_id = await _setup_sensor(hass, config)
 
     # Testing a energy sensor with non-monotonic intervals and values
     base = dt_util.utcnow()
     with freeze_time(base) as freezer:
-        for time, value in zip(times, values):
+        for time, value in zip(times, values, strict=False):
             freezer.move_to(base + timedelta(seconds=time))
             hass.states.async_set(entity_id, value, {}, force_update=True)
             await hass.async_block_till_done()
@@ -170,7 +185,7 @@ async def test_data_moving_average_for_discrete_sensor(hass: HomeAssistant) -> N
 
     base = dt_util.utcnow()
     with freeze_time(base) as freezer:
-        for time, value in zip(times, temperature_values):
+        for time, value in zip(times, temperature_values, strict=False):
             now = base + timedelta(seconds=time)
             freezer.move_to(now)
             hass.states.async_set(entity_id, value, {}, force_update=True)
@@ -214,7 +229,7 @@ async def test_data_moving_average_for_irregular_times(hass: HomeAssistant) -> N
 
     base = dt_util.utcnow()
     with freeze_time(base) as freezer:
-        for time, value in zip(times, temperature_values):
+        for time, value in zip(times, temperature_values, strict=False):
             now = base + timedelta(seconds=time)
             freezer.move_to(now)
             hass.states.async_set(entity_id, value, {}, force_update=True)
@@ -233,11 +248,7 @@ async def test_double_signal_after_delay(hass: HomeAssistant) -> None:
     # The old algorithm would produce extreme values if, after a delay longer than the time window
     # there would be two signals, a large spike would be produced. Check explicitly for this situation
     time_window = 60
-    times = [*range(time_window * 10)]
-    times = times + [
-        time_window * 20,
-        time_window * 20 + 0.01,
-    ]
+    times = [*range(time_window * 10), time_window * 20, time_window * 20 + 0.01]
 
     # just apply sine as some sort of temperature change and make sure the change after the delay is very small
     temperature_values = [sin(x) for x in times]
@@ -256,7 +267,7 @@ async def test_double_signal_after_delay(hass: HomeAssistant) -> None:
     base = dt_util.utcnow()
     previous = 0
     with freeze_time(base) as freezer:
-        for time, value in zip(times, temperature_values):
+        for time, value in zip(times, temperature_values, strict=False):
             now = base + timedelta(seconds=time)
             freezer.move_to(now)
             hass.states.async_set(entity_id, value, {}, force_update=True)
@@ -342,3 +353,85 @@ async def test_suffix(hass: HomeAssistant) -> None:
 
     # Testing a network speed sensor at 1000 bytes/s over 10s  = 10kbytes/s2
     assert round(float(state.state), config["sensor"]["round"]) == 0.0
+
+
+async def test_total_increasing_reset(hass: HomeAssistant) -> None:
+    """Test derivative sensor state with total_increasing sensor input where it should ignore the reset value."""
+    times = [0, 20, 30, 35, 40, 50, 60]
+    values = [0, 10, 30, 40, 0, 10, 40]
+    expected_times = [0, 20, 30, 35, 50, 60]
+    expected_values = ["0.00", "0.50", "2.00", "2.00", "1.00", "3.00"]
+
+    config, entity_id = await _setup_sensor(hass, {"unit_time": UnitOfTime.SECONDS})
+
+    base_time = dt_util.utcnow()
+    actual_times = []
+    actual_values = []
+    with freeze_time(base_time) as freezer:
+        for time, value in zip(times, values, strict=False):
+            current_time = base_time + timedelta(seconds=time)
+            freezer.move_to(current_time)
+            hass.states.async_set(
+                entity_id,
+                value,
+                {ATTR_STATE_CLASS: SensorStateClass.TOTAL_INCREASING},
+                force_update=True,
+            )
+            await hass.async_block_till_done()
+
+            state = hass.states.get("sensor.power")
+            assert state is not None
+
+            if state.last_reported == current_time:
+                actual_times.append(time)
+                actual_values.append(state.state)
+
+    assert actual_times == expected_times
+    assert actual_values == expected_values
+
+
+async def test_device_id(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    device_registry: dr.DeviceRegistry,
+) -> None:
+    """Test for source entity device for Derivative."""
+    source_config_entry = MockConfigEntry()
+    source_config_entry.add_to_hass(hass)
+    source_device_entry = device_registry.async_get_or_create(
+        config_entry_id=source_config_entry.entry_id,
+        identifiers={("sensor", "identifier_test")},
+        connections={("mac", "30:31:32:33:34:35")},
+    )
+    source_entity = entity_registry.async_get_or_create(
+        "sensor",
+        "test",
+        "source",
+        config_entry=source_config_entry,
+        device_id=source_device_entry.id,
+    )
+    await hass.async_block_till_done()
+    assert entity_registry.async_get("sensor.test_source") is not None
+
+    derivative_config_entry = MockConfigEntry(
+        data={},
+        domain=DOMAIN,
+        options={
+            "name": "Derivative",
+            "round": 1.0,
+            "source": "sensor.test_source",
+            "time_window": {"seconds": 0.0},
+            "unit_prefix": "k",
+            "unit_time": "min",
+        },
+        title="Derivative",
+    )
+
+    derivative_config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(derivative_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    derivative_entity = entity_registry.async_get("sensor.derivative")
+    assert derivative_entity is not None
+    assert derivative_entity.device_id == source_entity.device_id
