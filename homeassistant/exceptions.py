@@ -15,16 +15,15 @@ if TYPE_CHECKING:
 _function_cache: dict[str, Callable[[str, str, dict[str, str] | None], str]] = {}
 
 
-def import_async_get_exception_message() -> (
-    Callable[[str, str, dict[str, str] | None], str]
-):
+def import_async_get_exception_message() -> Callable[
+    [str, str, dict[str, str] | None], str
+]:
     """Return a method that can fetch a translated exception message.
 
     Defaults to English, requires translations to already be cached.
     """
 
-    # pylint: disable-next=import-outside-toplevel
-    from .helpers.translation import (
+    from .helpers.translation import (  # noqa: PLC0415
         async_get_exception_message as async_get_exception_message_import,
     )
 

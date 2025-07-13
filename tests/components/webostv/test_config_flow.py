@@ -1,15 +1,24 @@
-"""Test the WebOS Tv config flow."""
+"""Test the LG webOS TV config flow."""
 
 from aiowebostv import WebOsTvPairError
 import pytest
 
 from homeassistant import config_entries
-from homeassistant.components import ssdp
-from homeassistant.components.webostv.const import CONF_SOURCES, DOMAIN, LIVE_TV_APP_ID
+from homeassistant.components.webostv.const import (
+    CONF_SOURCES,
+    DEFAULT_NAME,
+    DOMAIN,
+    LIVE_TV_APP_ID,
+)
 from homeassistant.config_entries import SOURCE_SSDP
 from homeassistant.const import CONF_CLIENT_SECRET, CONF_HOST, CONF_SOURCE
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers.service_info.ssdp import (
+    ATTR_UPNP_FRIENDLY_NAME,
+    ATTR_UPNP_UDN,
+    SsdpServiceInfo,
+)
 
 from . import setup_webostv
 from .const import (
@@ -26,13 +35,13 @@ pytestmark = pytest.mark.usefixtures("mock_setup_entry")
 
 MOCK_USER_CONFIG = {CONF_HOST: HOST}
 
-MOCK_DISCOVERY_INFO = ssdp.SsdpServiceInfo(
+MOCK_DISCOVERY_INFO = SsdpServiceInfo(
     ssdp_usn="mock_usn",
     ssdp_st="mock_st",
     ssdp_location=f"http://{HOST}",
     upnp={
-        ssdp.ATTR_UPNP_FRIENDLY_NAME: f"[LG] webOS TV {TV_MODEL}",
-        ssdp.ATTR_UPNP_UDN: f"uuid:{FAKE_UUID}",
+        ATTR_UPNP_FRIENDLY_NAME: f"[LG] webOS TV {TV_MODEL}",
+        ATTR_UPNP_UDN: f"uuid:{FAKE_UUID}",
     },
 )
 
@@ -59,6 +68,29 @@ async def test_form(hass: HomeAssistant, client) -> None:
     assert config_entry.unique_id == FAKE_UUID
 
 
+async def test_form_no_model_name(hass: HomeAssistant, client) -> None:
+    """Test successful user flow without model name."""
+    client.tv_info.system = {}
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={CONF_SOURCE: config_entries.SOURCE_USER},
+        data=MOCK_USER_CONFIG,
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "pairing"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={}
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == DEFAULT_NAME
+    config_entry = result["result"]
+    assert config_entry.unique_id == FAKE_UUID
+
+
 @pytest.mark.parametrize(
     ("apps", "inputs"),
     [
@@ -80,8 +112,8 @@ async def test_options_flow_live_tv_in_apps(
     hass: HomeAssistant, client, apps, inputs
 ) -> None:
     """Test options config flow Live TV found in apps."""
-    client.apps = apps
-    client.inputs = inputs
+    client.tv_state.apps = apps
+    client.tv_state.inputs = inputs
     entry = await setup_webostv(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
@@ -99,16 +131,25 @@ async def test_options_flow_live_tv_in_apps(
     assert result["data"][CONF_SOURCES] == ["Live TV", "Input01", "Input02"]
 
 
-async def test_options_flow_cannot_retrieve(hass: HomeAssistant, client) -> None:
-    """Test options config flow cannot retrieve sources."""
+@pytest.mark.parametrize(
+    ("side_effect", "error"),
+    [
+        (WebOsTvPairError, "error_pairing"),
+        (ConnectionResetError, "cannot_connect"),
+    ],
+)
+async def test_options_flow_errors(
+    hass: HomeAssistant, client, side_effect, error
+) -> None:
+    """Test options config flow errors."""
     entry = await setup_webostv(hass)
 
-    client.connect.side_effect = ConnectionRefusedError
+    client.connect.side_effect = side_effect
     result = await hass.config_entries.options.async_init(entry.entry_id)
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "cannot_retrieve"}
+    assert result["errors"] == {"base": error}
 
     # recover
     client.connect.side_effect = None
@@ -137,7 +178,7 @@ async def test_form_cannot_connect(hass: HomeAssistant, client) -> None:
         data=MOCK_USER_CONFIG,
     )
 
-    client.connect.side_effect = ConnectionRefusedError
+    client.connect.side_effect = ConnectionResetError
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], user_input={}
     )
@@ -239,8 +280,8 @@ async def test_ssdp_in_progress(hass: HomeAssistant, client) -> None:
 
 async def test_form_abort_uuid_configured(hass: HomeAssistant, client) -> None:
     """Test abort if uuid is already configured, verify host update."""
-    entry = await setup_webostv(hass, MOCK_DISCOVERY_INFO.upnp[ssdp.ATTR_UPNP_UDN][5:])
-    assert entry.unique_id == MOCK_DISCOVERY_INFO.upnp[ssdp.ATTR_UPNP_UDN][5:]
+    entry = await setup_webostv(hass, MOCK_DISCOVERY_INFO.upnp[ATTR_UPNP_UDN][5:])
+    assert entry.unique_id == MOCK_DISCOVERY_INFO.upnp[ATTR_UPNP_UDN][5:]
     assert entry.data[CONF_HOST] == HOST
 
     result = await hass.config_entries.flow.async_init(
@@ -301,7 +342,7 @@ async def test_reauth_successful(hass: HomeAssistant, client) -> None:
     ("side_effect", "error"),
     [
         (WebOsTvPairError, "error_pairing"),
-        (ConnectionRefusedError, "cannot_connect"),
+        (ConnectionResetError, "cannot_connect"),
     ],
 )
 async def test_reauth_errors(hass: HomeAssistant, client, side_effect, error) -> None:
@@ -356,7 +397,7 @@ async def test_reconfigure_successful(hass: HomeAssistant, client) -> None:
     ("side_effect", "error"),
     [
         (WebOsTvPairError, "error_pairing"),
-        (ConnectionRefusedError, "cannot_connect"),
+        (ConnectionResetError, "cannot_connect"),
     ],
 )
 async def test_reconfigure_errors(
@@ -398,7 +439,7 @@ async def test_reconfigure_wrong_device(hass: HomeAssistant, client) -> None:
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "reconfigure"
 
-    client.hello_info = {"deviceUUID": "wrong_uuid"}
+    client.tv_info.hello = {"deviceUUID": "wrong_uuid"}
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         user_input={CONF_HOST: "new_host"},

@@ -2,20 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
 import logging
 from typing import Any
 
-from habiticalib import (
-    ContentData,
-    HabiticaClass,
-    TaskData,
-    TaskType,
-    UserData,
-    deserialize_task,
-)
+from habiticalib import ContentData, HabiticaClass, TaskData, UserData, ha
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -23,15 +16,32 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
+from homeassistant.util import dt as dt_util
 
 from .const import ASSETS_URL
+from .coordinator import HabiticaConfigEntry
 from .entity import HabiticaBase
-from .types import HabiticaConfigEntry
-from .util import get_attribute_points, get_attributes_total, inventory_list
+from .util import (
+    get_attribute_points,
+    get_attributes_total,
+    inventory_list,
+    pending_damage,
+    pending_quest_items,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+SVG_CLASS = {
+    HabiticaClass.WARRIOR: ha.WARRIOR,
+    HabiticaClass.ROGUE: ha.ROGUE,
+    HabiticaClass.MAGE: ha.WIZARD,
+    HabiticaClass.HEALER: ha.HEALER,
+}
+
+
+PARALLEL_UPDATES = 1
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -57,7 +67,6 @@ class HabiticaSensorEntity(StrEnum):
 
     DISPLAY_NAME = "display_name"
     HEALTH = "health"
-    HEALTH_MAX = "health_max"
     MANA = "mana"
     MANA_MAX = "mana_max"
     EXPERIENCE = "experience"
@@ -78,6 +87,8 @@ class HabiticaSensorEntity(StrEnum):
     FOOD_TOTAL = "food_total"
     SADDLE = "saddle"
     QUEST_SCROLLS = "quest_scrolls"
+    PENDING_DAMAGE = "pending_damage"
+    PENDING_QUEST_ITEMS = "pending_quest_items"
 
 
 SENSOR_DESCRIPTIONS: tuple[HabiticaSensorEntityDescription, ...] = (
@@ -85,39 +96,52 @@ SENSOR_DESCRIPTIONS: tuple[HabiticaSensorEntityDescription, ...] = (
         key=HabiticaSensorEntity.DISPLAY_NAME,
         translation_key=HabiticaSensorEntity.DISPLAY_NAME,
         value_fn=lambda user, _: user.profile.name,
+        attributes_fn=lambda user, _: {
+            "blurb": user.profile.blurb,
+            "joined": (
+                dt_util.as_local(joined).date()
+                if (joined := user.auth.timestamps.created)
+                else None
+            ),
+            "last_login": (
+                dt_util.as_local(last).date()
+                if (last := user.auth.timestamps.loggedin)
+                else None
+            ),
+            "total_logins": user.loginIncentives,
+        },
     ),
     HabiticaSensorEntityDescription(
         key=HabiticaSensorEntity.HEALTH,
         translation_key=HabiticaSensorEntity.HEALTH,
         suggested_display_precision=0,
         value_fn=lambda user, _: user.stats.hp,
-    ),
-    HabiticaSensorEntityDescription(
-        key=HabiticaSensorEntity.HEALTH_MAX,
-        translation_key=HabiticaSensorEntity.HEALTH_MAX,
-        entity_registry_enabled_default=False,
-        value_fn=lambda user, _: 50,
+        entity_picture=ha.HP,
     ),
     HabiticaSensorEntityDescription(
         key=HabiticaSensorEntity.MANA,
         translation_key=HabiticaSensorEntity.MANA,
         suggested_display_precision=0,
         value_fn=lambda user, _: user.stats.mp,
+        entity_picture=ha.MP,
     ),
     HabiticaSensorEntityDescription(
         key=HabiticaSensorEntity.MANA_MAX,
         translation_key=HabiticaSensorEntity.MANA_MAX,
         value_fn=lambda user, _: user.stats.maxMP,
+        entity_picture=ha.MP,
     ),
     HabiticaSensorEntityDescription(
         key=HabiticaSensorEntity.EXPERIENCE,
         translation_key=HabiticaSensorEntity.EXPERIENCE,
         value_fn=lambda user, _: user.stats.exp,
+        entity_picture=ha.XP,
     ),
     HabiticaSensorEntityDescription(
         key=HabiticaSensorEntity.EXPERIENCE_MAX,
         translation_key=HabiticaSensorEntity.EXPERIENCE_MAX,
         value_fn=lambda user, _: user.stats.toNextLevel,
+        entity_picture=ha.XP,
     ),
     HabiticaSensorEntityDescription(
         key=HabiticaSensorEntity.LEVEL,
@@ -129,6 +153,7 @@ SENSOR_DESCRIPTIONS: tuple[HabiticaSensorEntityDescription, ...] = (
         translation_key=HabiticaSensorEntity.GOLD,
         suggested_display_precision=2,
         value_fn=lambda user, _: user.stats.gp,
+        entity_picture=ha.GP,
     ),
     HabiticaSensorEntityDescription(
         key=HabiticaSensorEntity.CLASS,
@@ -206,7 +231,7 @@ SENSOR_DESCRIPTIONS: tuple[HabiticaSensorEntityDescription, ...] = (
         value_fn=(
             lambda user, _: sum(n for k, n in user.items.food.items() if k != "Saddle")
         ),
-        entity_picture="Pet_Food_Strawberry.png",
+        entity_picture=ha.FOOD,
         attributes_fn=lambda user, content: inventory_list(user, content, "food"),
     ),
     HabiticaSensorEntityDescription(
@@ -222,49 +247,17 @@ SENSOR_DESCRIPTIONS: tuple[HabiticaSensorEntityDescription, ...] = (
         entity_picture="inventory_quest_scroll_dustbunnies.png",
         attributes_fn=lambda user, content: inventory_list(user, content, "quests"),
     ),
-)
-
-
-TASKS_MAP_ID = "id"
-TASKS_MAP = {
-    "repeat": "repeat",
-    "challenge": "challenge",
-    "group": "group",
-    "frequency": "frequency",
-    "every_x": "everyX",
-    "streak": "streak",
-    "up": "up",
-    "down": "down",
-    "counter_up": "counterUp",
-    "counter_down": "counterDown",
-    "next_due": "nextDue",
-    "yester_daily": "yesterDaily",
-    "completed": "completed",
-    "collapse_checklist": "collapseChecklist",
-    "type": "Type",
-    "notes": "notes",
-    "tags": "tags",
-    "value": "value",
-    "priority": "priority",
-    "start_date": "startDate",
-    "days_of_month": "daysOfMonth",
-    "weeks_of_month": "weeksOfMonth",
-    "created_at": "createdAt",
-    "text": "text",
-    "is_due": "isDue",
-}
-
-
-TASK_SENSOR_DESCRIPTION: tuple[HabiticaTaskSensorEntityDescription, ...] = (
-    HabiticaTaskSensorEntityDescription(
-        key=HabiticaSensorEntity.HABITS,
-        translation_key=HabiticaSensorEntity.HABITS,
-        value_fn=lambda tasks: [r for r in tasks if r.Type is TaskType.HABIT],
+    HabiticaSensorEntityDescription(
+        key=HabiticaSensorEntity.PENDING_DAMAGE,
+        translation_key=HabiticaSensorEntity.PENDING_DAMAGE,
+        value_fn=pending_damage,
+        suggested_display_precision=1,
+        entity_picture=ha.DAMAGE,
     ),
-    HabiticaTaskSensorEntityDescription(
-        key=HabiticaSensorEntity.REWARDS,
-        translation_key=HabiticaSensorEntity.REWARDS,
-        value_fn=lambda tasks: [r for r in tasks if r.Type is TaskType.REWARD],
+    HabiticaSensorEntityDescription(
+        key=HabiticaSensorEntity.PENDING_QUEST_ITEMS,
+        translation_key=HabiticaSensorEntity.PENDING_QUEST_ITEMS,
+        value_fn=pending_quest_items,
     ),
 )
 
@@ -272,20 +265,15 @@ TASK_SENSOR_DESCRIPTION: tuple[HabiticaTaskSensorEntityDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: HabiticaConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the habitica sensors."""
 
     coordinator = config_entry.runtime_data
 
-    entities: list[SensorEntity] = [
+    async_add_entities(
         HabiticaSensor(coordinator, description) for description in SENSOR_DESCRIPTIONS
-    ]
-    entities.extend(
-        HabiticaTaskSensor(coordinator, description)
-        for description in TASK_SENSOR_DESCRIPTION
     )
-    async_add_entities(entities, True)
 
 
 class HabiticaSensor(HabiticaBase, SensorEntity):
@@ -311,34 +299,21 @@ class HabiticaSensor(HabiticaBase, SensorEntity):
     @property
     def entity_picture(self) -> str | None:
         """Return the entity picture to use in the frontend, if any."""
+        if self.entity_description.key is HabiticaSensorEntity.CLASS and (
+            _class := self.coordinator.data.user.stats.Class
+        ):
+            return SVG_CLASS[_class]
+
+        if self.entity_description.key is HabiticaSensorEntity.DISPLAY_NAME and (
+            img_url := self.coordinator.data.user.profile.imageUrl
+        ):
+            return img_url
+
         if entity_picture := self.entity_description.entity_picture:
-            return f"{ASSETS_URL}{entity_picture}"
+            return (
+                entity_picture
+                if entity_picture.startswith("data:image")
+                else f"{ASSETS_URL}{entity_picture}"
+            )
+
         return None
-
-
-class HabiticaTaskSensor(HabiticaBase, SensorEntity):
-    """A Habitica task sensor."""
-
-    entity_description: HabiticaTaskSensorEntityDescription
-
-    @property
-    def native_value(self) -> StateType:
-        """Return the state of the device."""
-
-        return len(self.entity_description.value_fn(self.coordinator.data.tasks))
-
-    @property
-    def extra_state_attributes(self) -> Mapping[str, Any] | None:
-        """Return the state attributes of all user tasks."""
-        attrs = {}
-
-        # Map tasks to TASKS_MAP
-        for task_data in self.entity_description.value_fn(self.coordinator.data.tasks):
-            received_task = deserialize_task(asdict(task_data))
-            task_id = received_task[TASKS_MAP_ID]
-            task = {}
-            for map_key, map_value in TASKS_MAP.items():
-                if value := received_task.get(map_value):
-                    task[map_key] = value
-            attrs[str(task_id)] = task
-        return attrs

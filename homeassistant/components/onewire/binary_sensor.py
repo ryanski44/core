@@ -14,9 +14,9 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DEVICE_KEYS_0_3, DEVICE_KEYS_0_7, DEVICE_KEYS_A_B, READ_MODE_BOOL
+from .const import DEVICE_KEYS_0_3, DEVICE_KEYS_0_7, DEVICE_KEYS_A_B, READ_MODE_INT
 from .entity import OneWireEntity, OneWireEntityDescription
 from .onewirehub import (
     SIGNAL_NEW_DEVICE_CONNECTED,
@@ -37,13 +37,14 @@ class OneWireBinarySensorEntityDescription(
 ):
     """Class describing OneWire binary sensor entities."""
 
+    read_mode = READ_MODE_INT
+
 
 DEVICE_BINARY_SENSORS: dict[str, tuple[OneWireBinarySensorEntityDescription, ...]] = {
     "12": tuple(
         OneWireBinarySensorEntityDescription(
             key=f"sensed.{device_key}",
             entity_registry_enabled_default=False,
-            read_mode=READ_MODE_BOOL,
             translation_key="sensed_id",
             translation_placeholders={"id": str(device_key)},
         )
@@ -53,7 +54,6 @@ DEVICE_BINARY_SENSORS: dict[str, tuple[OneWireBinarySensorEntityDescription, ...
         OneWireBinarySensorEntityDescription(
             key=f"sensed.{device_key}",
             entity_registry_enabled_default=False,
-            read_mode=READ_MODE_BOOL,
             translation_key="sensed_id",
             translation_placeholders={"id": str(device_key)},
         )
@@ -63,7 +63,6 @@ DEVICE_BINARY_SENSORS: dict[str, tuple[OneWireBinarySensorEntityDescription, ...
         OneWireBinarySensorEntityDescription(
             key=f"sensed.{device_key}",
             entity_registry_enabled_default=False,
-            read_mode=READ_MODE_BOOL,
             translation_key="sensed_id",
             translation_placeholders={"id": str(device_key)},
         )
@@ -78,7 +77,6 @@ HOBBYBOARD_EF: dict[str, tuple[OneWireBinarySensorEntityDescription, ...]] = {
         OneWireBinarySensorEntityDescription(
             key=f"hub/short.{device_key}",
             entity_registry_enabled_default=False,
-            read_mode=READ_MODE_BOOL,
             entity_category=EntityCategory.DIAGNOSTIC,
             device_class=BinarySensorDeviceClass.PROBLEM,
             translation_key="hub_short_id",
@@ -101,7 +99,7 @@ def get_sensor_types(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: OneWireConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up 1-Wire platform."""
 
@@ -122,9 +120,9 @@ async def async_setup_entry(
 
 def get_entities(
     onewire_hub: OneWireHub, devices: list[OWDeviceDescription]
-) -> list[OneWireBinarySensor]:
+) -> list[OneWireBinarySensorEntity]:
     """Get a list of entities."""
-    entities: list[OneWireBinarySensor] = []
+    entities: list[OneWireBinarySensorEntity] = []
     for device in devices:
         family = device.family
         device_id = device.id
@@ -140,7 +138,7 @@ def get_entities(
         for description in get_sensor_types(device_sub_type)[family]:
             device_file = os.path.join(os.path.split(device.path)[0], description.key)
             entities.append(
-                OneWireBinarySensor(
+                OneWireBinarySensorEntity(
                     description=description,
                     device_id=device_id,
                     device_file=device_file,
@@ -152,7 +150,7 @@ def get_entities(
     return entities
 
 
-class OneWireBinarySensor(OneWireEntity, BinarySensorEntity):
+class OneWireBinarySensorEntity(OneWireEntity, BinarySensorEntity):
     """Implementation of a 1-Wire binary sensor."""
 
     entity_description: OneWireBinarySensorEntityDescription
@@ -162,4 +160,4 @@ class OneWireBinarySensor(OneWireEntity, BinarySensorEntity):
         """Return true if sensor is on."""
         if self._state is None:
             return None
-        return bool(self._state)
+        return self._state == 1

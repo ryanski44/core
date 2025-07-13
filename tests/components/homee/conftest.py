@@ -1,9 +1,9 @@
 """Fixtures for Homee integration tests."""
 
+from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from typing_extensions import Generator
 
 from homeassistant.components.homee.const import DOMAIN
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
@@ -12,9 +12,21 @@ from tests.common import MockConfigEntry
 
 HOMEE_ID = "00055511EECC"
 HOMEE_IP = "192.168.1.11"
+NEW_HOMEE_IP = "192.168.1.12"
 HOMEE_NAME = "TestHomee"
 TESTUSER = "testuser"
+NEW_TESTUSER = "testuser2"
 TESTPASS = "testpass"
+NEW_TESTPASS = "testpass2"
+
+
+@pytest.fixture
+def mock_setup_entry() -> Generator[AsyncMock]:
+    """Mock setting up a config entry."""
+    with patch(
+        "homeassistant.components.homee.async_setup_entry", return_value=True
+    ) as mock_setup:
+        yield mock_setup
 
 
 @pytest.fixture
@@ -29,16 +41,8 @@ def mock_config_entry() -> MockConfigEntry:
             CONF_PASSWORD: TESTPASS,
         },
         unique_id=HOMEE_ID,
+        entry_id="test_entry_id",
     )
-
-
-@pytest.fixture
-def mock_setup_entry() -> Generator[AsyncMock]:
-    """Mock setting up a config entry."""
-    with patch(
-        "homeassistant.components.homee.async_setup_entry", return_value=True
-    ) as mock_setup:
-        yield mock_setup
 
 
 @pytest.fixture
@@ -50,7 +54,7 @@ def mock_homee() -> Generator[AsyncMock]:
         ) as mocked_homee,
         patch(
             "homeassistant.components.homee.Homee",
-            autospec=True,
+            new=mocked_homee,
         ),
     ):
         homee = mocked_homee.return_value
@@ -61,8 +65,21 @@ def mock_homee() -> Generator[AsyncMock]:
         homee.settings = MagicMock()
         homee.settings.uid = HOMEE_ID
         homee.settings.homee_name = HOMEE_NAME
+        homee.settings.version = "1.2.3"
+        homee.settings.mac_address = "00:05:55:11:ee:cc"
         homee.reconnect_interval = 10
+        homee.connected = True
 
         homee.get_access_token.return_value = "test_token"
+        # Mock the Homee settings raw_data for diagnostics
+        homee.settings.raw_data = {
+            "uid": HOMEE_ID,
+            "homee_name": HOMEE_NAME,
+            "version": "1.2.3",
+            "mac_address": "00:05:55:11:ee:cc",
+            "wlan_ssid": "TestSSID",
+            "latitude": 52.5200,
+            "longitude": 13.4050,
+        }
 
         yield homee

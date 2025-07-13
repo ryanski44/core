@@ -7,14 +7,30 @@ from pyHomee import Homee, HomeeAuthFailedException, HomeeConnectionFailedExcept
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.COVER]
+PLATFORMS = [
+    Platform.ALARM_CONTROL_PANEL,
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.CLIMATE,
+    Platform.COVER,
+    Platform.EVENT,
+    Platform.FAN,
+    Platform.LIGHT,
+    Platform.LOCK,
+    Platform.NUMBER,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SIREN,
+    Platform.SWITCH,
+    Platform.VALVE,
+]
 
 type HomeeConfigEntry = ConfigEntry[Homee]
 
@@ -37,12 +53,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: HomeeConfigEntry) -> boo
     try:
         await homee.get_access_token()
     except HomeeConnectionFailedException as exc:
-        raise ConfigEntryNotReady(
-            f"Connection to Homee failed: {exc.__cause__}"
-        ) from exc
+        raise ConfigEntryNotReady(f"Connection to Homee failed: {exc.reason}") from exc
     except HomeeAuthFailedException as exc:
-        raise ConfigEntryNotReady(
-            f"Authentication to Homee failed: {exc.__cause__}"
+        raise ConfigEntryAuthFailed(
+            f"Authentication to Homee failed: {exc.reason}"
         ) from exc
 
     hass.loop.create_task(homee.run())
@@ -58,7 +72,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: HomeeConfigEntry) -> boo
         else:
             _LOGGER.warning("Disconnected from Homee at %s", entry.data[CONF_HOST])
 
-    await homee.add_connection_listener(_connection_update_callback)
+    homee.add_connection_listener(_connection_update_callback)
 
     # create device register entry
     device_registry = dr.async_get(hass)

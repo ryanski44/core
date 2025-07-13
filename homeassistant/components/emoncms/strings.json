@@ -1,17 +1,18 @@
 {
   "config": {
     "error": {
-      "api_error": "An error occured in the pyemoncms API : {details}"
+      "api_error": "An error occurred in the pyemoncms API : {details}"
     },
     "step": {
       "user": {
         "data": {
           "url": "[%key:common::config_flow::data::url%]",
-          "api_key": "[%key:common::config_flow::data::api_key%]"
+          "api_key": "[%key:common::config_flow::data::api_key%]",
+          "sync_mode": "Synchronization mode"
         },
         "data_description": {
-          "url": "Server url starting with the protocol (http or https)",
-          "api_key": "Your 32 bits api key"
+          "url": "Server URL starting with the protocol (http or https)",
+          "api_key": "Your 32 bits API key"
         }
       },
       "choose_feeds": {
@@ -21,7 +22,17 @@
       }
     },
     "abort": {
-      "already_configured": "This server is already configured"
+      "already_configured": "This server is already configured",
+      "unique_id_mismatch": "This emoncms serial number does not match the previous serial number",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
+    }
+  },
+  "selector": {
+    "sync_mode": {
+      "options": {
+        "auto": "Synchronize all available Feeds",
+        "manual": "Select which Feeds to synchronize"
+      }
     }
   },
   "entity": {
@@ -93,7 +104,7 @@
     },
     "migrate_database": {
       "title": "Upgrade your emoncms version",
-      "description": "Your [emoncms]({url}) does not ship a unique identifier.\n\n Please upgrade to at least version 11.5.7 and migrate your emoncms database.\n\n More info on [emoncms documentation]({doc_url})"
+      "description": "Your [emoncms]({url}) does not ship a unique identifier.\n\nPlease upgrade to at least version 11.5.7 and migrate your emoncms database.\n\nMore info in the [emoncms documentation]({doc_url})"
     }
   }
 }
