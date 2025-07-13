@@ -52,7 +52,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # return unload_ok
 
-    """Handle removal of an entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
     unloaded = all(
         await asyncio.gather(
@@ -97,4 +96,4 @@ class ThermostatUpdateCoordinator(DataUpdateCoordinator):
         try:
             return await self.api.async_get_status()
         except Exception as exception:
-            raise UpdateFailed() from exception
+            raise UpdateFailed from exception

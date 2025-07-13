@@ -42,40 +42,54 @@ class ThermostatApiClient:
         )
 
     async def async_play(self) -> None:
+        """Send a request to play Pandora on the device."""
         url = f"http://{self._host}/api/pandora/play"
         headers = head
         return await self.api_wrapper("get", url, headers=headers)
 
     async def async_pause(self) -> None:
+        """Send a request to pause Pandora on the device."""
         url = f"http://{self._host}/api/pandora/pause"
         headers = head
         return await self.api_wrapper("get", url, headers=headers)
 
     async def async_on(self) -> None:
+        """Send a request to start Pandora on the device."""
         url = f"http://{self._host}/api/pandora/on"
         headers = head
         return await self.api_wrapper("get", url, headers=headers)
 
     async def async_off(self) -> None:
+        """Send a request to stop Pandora on the device."""
         url = f"http://{self._host}/api/pandora/off"
         headers = head
         return await self.api_wrapper("get", url, headers=headers)
 
     async def async_next(self) -> None:
+        """Send a request to play the next song."""
         url = f"http://{self._host}/api/pandora/next"
         headers = head
         return await self.api_wrapper("get", url, headers=headers)
 
     async def async_changestation(self, stationName: str) -> None:
+        """Send a request to change the Pandora station on the device."""
         myqs = {"stationName": stationName}
         url = f"http://{self._host}/api/pandora/changestation?{urlencode(myqs)}"
         headers = head
         return await self.api_wrapper("get", url, headers=headers)
 
     async def api_wrapper(
-        self, method: str, url: str, data: dict = {}, headers: dict = {}
+        self,
+        method: str,
+        url: str,
+        data: dict | None = None,
+        headers: dict | None = None,
     ) -> dict:
         """Get information from the API."""
+        if data is None:
+            data = {}
+        if headers is None:
+            headers = {}
         try:
             async with asyncio.timeout(TIMEOUT):
                 if method == "get":
@@ -116,6 +130,6 @@ class ThermostatApiClient:
                 url,
                 exception,
             )
-        except Exception as exception:  # pylint: disable=broad-except
+        except Exception as exception:  # pylint: disable=broad-except  # noqa: BLE001
             _LOGGER.error("Something really wrong happened! - %s", exception)
         return {}

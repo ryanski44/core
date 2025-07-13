@@ -1,7 +1,7 @@
 """Constants for the HTTP Thermostat integration."""
 
 NAME = "HTTP Thermostat (rbadams.com)"
-VERSION = "0.0.3"
+VERSION = "0.0.4"
 
 DOMAIN = "com_rbadams_thermostat"
 DOMAIN_DATA = f"{DOMAIN}_data"
@@ -10,7 +10,7 @@ STARTUP_MESSAGE = f"""
 -------------------------------------------------------------------
 {NAME}
 Version: {VERSION}
-This is a custom integration for a respberry pi based custom thermostat!
+This is a custom integration for a raspberry pi based custom thermostat!
 -------------------------------------------------------------------
 """
 

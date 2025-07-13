@@ -33,7 +33,7 @@ async def async_setup_entry(
 class PandoraMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     """Representation of a Pandora Media Player."""
 
-    def __init__(self, coordinator: ThermostatUpdateCoordinator):
+    def __init__(self, coordinator: ThermostatUpdateCoordinator) -> None:
         """Init."""
         super().__init__(coordinator)
         self.api = coordinator.api
@@ -53,7 +53,7 @@ class PandoraMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
 
     @property
     def supported_features(self):
-        """Flag media player features that are supported"""
+        """Flag media player features that are supported."""
         return (
             MediaPlayerEntityFeature.PLAY
             | MediaPlayerEntityFeature.PAUSE

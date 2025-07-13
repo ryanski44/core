@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from homeassistant.components.climate import ClimateEntity
-from homeassistant.components.climate.const import (
+from homeassistant.components.climate import (
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
+    ClimateEntity,
     ClimateEntityFeature,
     HVACAction,
     HVACMode,
@@ -52,7 +52,7 @@ async def async_setup_entry(
 class HTTPThermostat(CoordinatorEntity, ClimateEntity):
     """Representation of a Thermostat."""
 
-    def __init__(self, coordinator: ThermostatUpdateCoordinator):
+    def __init__(self, coordinator: ThermostatUpdateCoordinator) -> None:
         """Init."""
         super().__init__(coordinator)
         self.api = coordinator.api
@@ -121,7 +121,7 @@ class HTTPThermostat(CoordinatorEntity, ClimateEntity):
 
     @property
     def precision(self) -> float:
-        """Return the precision of the temperature"""
+        """Return the precision of the temperature."""
         return PRECISION_TENTHS
 
     @property
@@ -141,12 +141,12 @@ class HTTPThermostat(CoordinatorEntity, ClimateEntity):
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
-        min = kwargs.get(ATTR_TARGET_TEMP_LOW)
-        max = kwargs.get(ATTR_TARGET_TEMP_HIGH)
-        if min is None and max is None:
+        min_temp = kwargs.get(ATTR_TARGET_TEMP_LOW)
+        max_temp = kwargs.get(ATTR_TARGET_TEMP_HIGH)
+        if min_temp is None and max_temp is None:
             return
         data = self.coordinator.data
-        data["minTemp"] = min
-        data["maxTemp"] = max
+        data["minTemp"] = min_temp
+        data["maxTemp"] = max_temp
         await self.api.async_set_parameter(data)
         await self.coordinator.async_request_refresh()

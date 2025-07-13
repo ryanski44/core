@@ -1,4 +1,5 @@
 """Config flow for HTTP Thermostat integration."""
+
 from __future__ import annotations
 
 import logging
@@ -15,7 +16,6 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# TODO adjust the data schema to the data that you need
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required("host"): str,
@@ -43,7 +43,6 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
 
     Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
     """
-    # TODO validate the data can be used to set up a connection.
 
     # If your PyPI package is not built with async, pass your methods
     # to the executor:
